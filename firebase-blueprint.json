@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "Lead": {
+      "title": "Lead",
+      "description": "Student inquiry lead",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "source": { "type": "string" },
+        "course_interest": { "type": "string" },
+        "status": { "type": "string" },
+        "assigned_batch": { "type": "string" },
+        "lead_score": { "type": "string" },
+        "created_date": { "type": "string" },
+        "last_contacted_date": { "type": "string" },
+        "next_followup_date": { "type": "string" },
+        "tags": { "type": "array" },
+        "address": { "type": "string" },
+        "converted_to_student": { "type": "boolean" }
+      },
+      "required": ["name", "phone", "source", "course_interest", "status", "assigned_batch", "lead_score", "created_date"]
+    },
+    "CRMSettings": {
+      "title": "CRM Settings",
+      "description": "CRM Configuration and message templates",
+      "type": "object",
+      "properties": {
+        "courses": { "type": "array" },
+        "sources": { "type": "array" },
+        "batches": { "type": "array" },
+        "whatsappTemplates": { "type": "array" }
+      },
+      "required": ["courses", "sources", "batches", "whatsappTemplates"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Course offered by the academy",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "active": { "type": "boolean" },
+        "created_timestamp": { "type": "string" }
+      },
+      "required": ["name", "active"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "Course batch schedule",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "active": { "type": "boolean" },
+        "created_timestamp": { "type": "string" }
+      },
+      "required": ["name", "active"]
+    }
+  },
+  "firestore": {
+    "/leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Collection of student inquiry leads"
+    },
+    "/settings/config": {
+      "schema": "CRMSettings",
+      "description": "System-wide settings and templates config document"
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Collection of available course options"
+    },
+    "/batches/{batchId}": {
+      "schema": "Batch",
+      "description": "Collection of available batch options"
+    }
+  }
+}

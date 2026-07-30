@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Leads collection rules
+    match /leads/{leadId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Settings document rules
+    match /settings/config {
+      allow read, write: if request.auth != null;
+    }
+
+    // Courses collection rules
+    match /courses/{courseId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Batches collection rules
+    match /batches/{batchId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

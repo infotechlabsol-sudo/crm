@@ -1,0 +1,6 @@
+{
+  "name": "Tech Lab CRM",
+  "description": "Lead management system for Tech Lab Academy video editing and graphic design training institute.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
