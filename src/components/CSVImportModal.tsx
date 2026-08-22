@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Papa from 'papaparse';
-import { Lead, CRMSettings } from '../types';
+import { Lead, CRMSettings, LeadScore } from '../types';
 import {
   FileSpreadsheet,
   Upload,
@@ -22,11 +22,14 @@ interface ParsedRow {
   mappedName: string;
   mappedPhone: string;
   mappedEmail: string;
+  mappedAddress: string;
   mappedSource: string;
   mappedCourse: string;
-  mappedBatch: string;
   mappedClassMode: 'Online' | 'Offline';
   mappedDob: string;
+  mappedBatch: string;
+  mappedLeadScore: LeadScore;
+  mappedTags: string[];
   isValid: boolean;
   validationError?: string;
   isDuplicate: boolean;
@@ -43,25 +46,31 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
   const [rawHeaders, setRawHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<Record<string, string>[]>([]);
 
-  // Mapping state
+  // Mapping state for all 11 fields
   const [headerMapping, setHeaderMapping] = useState<{
     name: string;
     phone: string;
     email: string;
+    address: string;
     source: string;
     course_interest: string;
-    assigned_batch: string;
     class_mode: string;
     dob: string;
+    assigned_batch: string;
+    lead_score: string;
+    tags: string;
   }>({
     name: '',
     phone: '',
     email: '',
+    address: '',
     source: '',
     course_interest: '',
-    assigned_batch: '',
     class_mode: '',
     dob: '',
+    assigned_batch: '',
+    lead_score: '',
+    tags: '',
   });
 
   // Duplicate strategy: 'skip' | 'update'
@@ -78,13 +87,25 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
     total: 0,
   });
 
-  // Client-side sample CSV generation and download
+  // Client-side sample CSV generation and download containing all 11 fields
   const handleDownloadSample = () => {
-    const headers = ['name', 'phone', 'email', 'source', 'course_interest', 'class_mode', 'dob'];
-    const sampleCourse = settings.courses[0] || 'Web Development';
-    const row = ['Rahul Sharma', '9876543210', 'rahul.sharma@example.com', 'Facebook Ads', sampleCourse, 'Offline', '2002-06-15'];
-    
-    const csvContent = [headers.join(','), row.join(',')].join('\n');
+    const sampleData = [
+      {
+        name: 'Rahul Sharma',
+        phone: '9876543210',
+        email: 'rahul.sharma@example.com',
+        address: 'Mowa, Raipur, Chhattisgarh',
+        source: 'Facebook Ads',
+        course_interest: 'Premiere Pro',
+        class_mode: 'Offline',
+        dob: '15-06-2002',
+        assigned_batch: 'Batch 12 - Aug 2026',
+        lead_score: 'Warm',
+        tags: 'interested in weekend batch',
+      },
+    ];
+
+    const csvContent = Papa.unparse(sampleData);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -126,14 +147,17 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
 
         // Auto detect matching headers
         const autoMap = {
-          name: headers.find((h) => /name|student|client|person/i.test(h)) || headers[0] || '',
-          phone: headers.find((h) => /phone|mobile|contact|number/i.test(h)) || headers[1] || '',
-          email: headers.find((h) => /email|mail/i.test(h)) || '',
-          source: headers.find((h) => /source|channel|utm|ad/i.test(h)) || '',
-          course_interest: headers.find((h) => /course|interest|program/i.test(h)) || '',
-          assigned_batch: headers.find((h) => /batch|group/i.test(h)) || '',
-          class_mode: headers.find((h) => /class.*mode|mode|type/i.test(h)) || '',
-          dob: headers.find((h) => /dob|birth|date.*birth/i.test(h)) || '',
+          name: headers.find((h) => /^name$|student.*name|client.*name|person/i.test(h.trim())) || headers.find((h) => /name/i.test(h)) || headers[0] || '',
+          phone: headers.find((h) => /^phone$|mobile|contact|number/i.test(h.trim())) || headers[1] || '',
+          email: headers.find((h) => /^email$|mail/i.test(h.trim())) || '',
+          address: headers.find((h) => /^address$|location|city|place/i.test(h.trim())) || '',
+          source: headers.find((h) => /^source$|channel|utm|ad/i.test(h.trim())) || '',
+          course_interest: headers.find((h) => /^course_interest$|course|interest|program/i.test(h.trim())) || '',
+          class_mode: headers.find((h) => /^class_mode$|class.*mode|mode|type/i.test(h.trim())) || '',
+          dob: headers.find((h) => /^dob$|birth|date.*birth/i.test(h.trim())) || '',
+          assigned_batch: headers.find((h) => /^assigned_batch$|batch|group/i.test(h.trim())) || '',
+          lead_score: headers.find((h) => /^lead_score$|score|rating|lead.*score|priority/i.test(h.trim())) || '',
+          tags: headers.find((h) => /^tags$|^tag$|label|keyword/i.test(h.trim())) || '',
         };
 
         setHeaderMapping(autoMap);
@@ -158,12 +182,26 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
       const mPhoneRaw = (row[headerMapping.phone] || '').trim();
       const mPhoneClean = cleanPhoneNumber(mPhoneRaw);
       const mEmail = (row[headerMapping.email] || '').trim();
+      const mAddress = headerMapping.address ? (row[headerMapping.address] || '').trim() : '';
       const mSource = (row[headerMapping.source] || '').trim() || settings.sources[0] || 'Facebook Ads';
       const mCourse = (row[headerMapping.course_interest] || '').trim() || settings.courses[0] || 'General Course';
       const mBatch = (row[headerMapping.assigned_batch] || '').trim() || settings.batches[0] || 'Unassigned';
+      
       const mClassModeRaw = headerMapping.class_mode ? (row[headerMapping.class_mode] || '').trim() : '';
       const mClassMode: 'Online' | 'Offline' = mClassModeRaw.toLowerCase().includes('online') ? 'Online' : 'Offline';
+      
       const mDob = headerMapping.dob ? (row[headerMapping.dob] || '').trim() : '';
+
+      const mScoreRaw = headerMapping.lead_score ? (row[headerMapping.lead_score] || '').trim().toLowerCase() : '';
+      let mLeadScore: LeadScore = 'Warm';
+      if (mScoreRaw.includes('hot')) mLeadScore = 'Hot';
+      else if (mScoreRaw.includes('cold')) mLeadScore = 'Cold';
+      else if (mScoreRaw.includes('warm')) mLeadScore = 'Warm';
+
+      const mTagsRaw = headerMapping.tags ? (row[headerMapping.tags] || '').trim() : '';
+      const mTags = mTagsRaw
+        ? mTagsRaw.split(/[,;]/).map((t) => t.trim()).filter(Boolean)
+        : [];
 
       let isValid = true;
       let validationError: string | undefined;
@@ -184,11 +222,14 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
         mappedName: mName,
         mappedPhone: mPhoneClean,
         mappedEmail: mEmail,
+        mappedAddress: mAddress,
         mappedSource: mSource,
         mappedCourse: mCourse,
         mappedBatch: mBatch,
         mappedClassMode: mClassMode,
         mappedDob: mDob,
+        mappedLeadScore: mLeadScore,
+        mappedTags: mTags,
         isValid,
         validationError,
         isDuplicate,
@@ -226,12 +267,15 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
             const updated: Lead = {
               ...original,
               name: row.mappedName || original.name,
-              email: row.mappedEmail || original.email,
+              email: row.mappedEmail !== '' ? row.mappedEmail : original.email,
+              address: row.mappedAddress !== '' ? row.mappedAddress : original.address,
               source: row.mappedSource || original.source,
               course_interest: row.mappedCourse || original.course_interest,
               assigned_batch: row.mappedBatch || original.assigned_batch,
               class_mode: row.mappedClassMode || original.class_mode || 'Offline',
-              dob: row.mappedDob || original.dob || '',
+              dob: row.mappedDob !== '' ? row.mappedDob : original.dob || '',
+              lead_score: row.mappedLeadScore || original.lead_score || 'Warm',
+              tags: row.mappedTags.length > 0 ? row.mappedTags : original.tags || [],
               last_contacted_date: nowISO,
               notes_history: [
                 {
@@ -256,25 +300,26 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
         id: 'lead_csv_' + Date.now() + Math.random().toString(36).substring(2, 6),
         name: row.mappedName,
         phone: row.mappedPhone,
-        email: row.mappedEmail,
+        email: row.mappedEmail || undefined,
+        address: row.mappedAddress || undefined,
         source: row.mappedSource,
         course_interest: row.mappedCourse,
         status: 'New',
         assigned_batch: row.mappedBatch,
         class_mode: row.mappedClassMode || 'Offline',
         dob: row.mappedDob || '',
-        lead_score: 'Warm',
+        lead_score: row.mappedLeadScore || 'Warm',
         created_date: nowISO,
         notes_history: [
           {
-            id: 'n_init_' + Date.now(),
+            id: 'n_init_' + Date.now() + Math.random().toString(36).substring(2, 5),
             note_text: 'Lead imported via CSV file.',
             timestamp: nowISO,
             added_by: 'System (CSV Import)',
             is_system: true,
           },
         ],
-        tags: ['CSV Import'],
+        tags: row.mappedTags.length > 0 ? row.mappedTags : ['CSV Import'],
       };
 
       newLeadsToSave.push(freshLead);
@@ -295,7 +340,7 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] my-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] my-auto">
         {/* Header */}
         <div className="bg-slate-950 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
@@ -312,7 +357,7 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
 
         {/* Step 1: Upload File */}
         {step === 'upload' && (
-          <div className="p-8 text-center space-y-6">
+          <div className="p-6 sm:p-8 text-center space-y-6 overflow-y-auto">
             <div className="w-16 h-16 rounded-2xl bg-teal-950/80 border border-teal-800/60 flex items-center justify-center mx-auto text-teal-400 shadow-lg">
               <Upload className="w-8 h-8" />
             </div>
@@ -335,7 +380,9 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
               <p className="text-xs font-semibold text-slate-300">
                 Click or drag & drop .CSV file here
               </p>
-              <p className="text-[10px] text-slate-500 mt-1">Expected columns: Name, Phone, Email, Source, Course Interest, Class Mode, DOB</p>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Supported columns: name, phone, email, address, source, course_interest, class_mode, dob, assigned_batch, lead_score, tags
+              </p>
             </div>
 
             {/* Download Template Section */}
@@ -343,15 +390,15 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
               <div className="space-y-1 flex-1">
                 <p className="text-[11px] font-semibold text-slate-200">Need a starting template?</p>
                 <p className="text-[10px] text-slate-400 leading-relaxed">
-                  Download this template, fill in your leads, then upload it below. Don't change the column headers.
+                  Download this complete 11-column template, fill in your leads, then upload it above.
                 </p>
                 <p className="text-[10px] text-slate-500 italic">
-                  Note: For Date of Birth (dob), please use the format <strong className="text-teal-400 font-medium">YYYY-MM-DD</strong> (e.g., 2002-06-15).
+                  Note: Optional fields left blank will save as default values for that lead.
                 </p>
               </div>
               <button
                 onClick={handleDownloadSample}
-                className="w-full sm:w-auto shrink-0 bg-teal-950 hover:bg-teal-900/80 border border-teal-800 text-teal-400 text-xs px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="w-full sm:w-auto shrink-0 bg-teal-950 hover:bg-teal-900/80 border border-teal-800 text-teal-400 text-xs px-4 py-2.5 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4" />
                 <span>Download Sample CSV Template</span>
@@ -362,15 +409,15 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
 
         {/* Step 2: Mapping Headers */}
         {step === 'mapping' && (
-          <div className="p-6 space-y-5 text-xs">
+          <div className="p-6 space-y-5 text-xs overflow-y-auto">
             <div>
               <h3 className="text-sm font-bold text-slate-100">Map CSV Columns to CRM Fields</h3>
               <p className="text-slate-400 mt-0.5">
-                Verify which CSV column matches each required lead field. Found {rawRows.length} rows in CSV.
+                Verify which CSV column matches each lead field. Found {rawRows.length} rows in CSV.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-950 p-4 border border-slate-800 rounded-xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 bg-slate-950 p-4 border border-slate-800 rounded-xl">
               <div>
                 <label className="block text-slate-300 font-bold mb-1">Student Name Field *</label>
                 <select
@@ -420,6 +467,22 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
               </div>
 
               <div>
+                <label className="block text-slate-300 font-medium mb-1">Address Field</label>
+                <select
+                  value={headerMapping.address}
+                  onChange={(e) => setHeaderMapping({ ...headerMapping, address: e.target.value })}
+                  className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2"
+                >
+                  <option value="">(Optional) Select Column</option>
+                  {rawHeaders.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-slate-300 font-medium mb-1">Lead Source Field</label>
                 <select
                   value={headerMapping.source}
@@ -441,24 +504,6 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
                   value={headerMapping.course_interest}
                   onChange={(e) =>
                     setHeaderMapping({ ...headerMapping, course_interest: e.target.value })
-                  }
-                  className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2"
-                >
-                  <option value="">(Optional) Select Column</option>
-                  {rawHeaders.map((h) => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Assigned Batch Field</label>
-                <select
-                  value={headerMapping.assigned_batch}
-                  onChange={(e) =>
-                    setHeaderMapping({ ...headerMapping, assigned_batch: e.target.value })
                   }
                   className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2"
                 >
@@ -506,12 +551,66 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
                   ))}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Assigned Batch Field</label>
+                <select
+                  value={headerMapping.assigned_batch}
+                  onChange={(e) =>
+                    setHeaderMapping({ ...headerMapping, assigned_batch: e.target.value })
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2"
+                >
+                  <option value="">(Optional) Select Column</option>
+                  {rawHeaders.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Lead Score Field</label>
+                <select
+                  value={headerMapping.lead_score}
+                  onChange={(e) =>
+                    setHeaderMapping({ ...headerMapping, lead_score: e.target.value })
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2"
+                >
+                  <option value="">(Optional) Select Column</option>
+                  {rawHeaders.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Tags Field</label>
+                <select
+                  value={headerMapping.tags}
+                  onChange={(e) =>
+                    setHeaderMapping({ ...headerMapping, tags: e.target.value })
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2"
+                >
+                  <option value="">(Optional) Select Column</option>
+                  {rawHeaders.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setStep('upload')}
-                className="px-4 py-2 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-lg"
+                className="px-4 py-2 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-lg cursor-pointer"
               >
                 Back
               </button>
@@ -557,17 +656,23 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
               </div>
             </div>
 
-            {/* Table Preview */}
-            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
-              <table className="w-full text-left">
+            {/* Table Preview showing all mapped columns */}
+            <div className="border border-slate-800 rounded-xl overflow-x-auto max-h-80 overflow-y-auto">
+              <table className="w-full text-left min-w-[1100px]">
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800 sticky top-0">
                   <tr>
                     <th className="py-2.5 px-3">Status</th>
                     <th className="py-2.5 px-3">Student Name</th>
                     <th className="py-2.5 px-3">Phone</th>
                     <th className="py-2.5 px-3">Email</th>
-                    <th className="py-2.5 px-3">Course</th>
+                    <th className="py-2.5 px-3">Address</th>
                     <th className="py-2.5 px-3">Source</th>
+                    <th className="py-2.5 px-3">Course</th>
+                    <th className="py-2.5 px-3">Class Mode</th>
+                    <th className="py-2.5 px-3">DOB</th>
+                    <th className="py-2.5 px-3">Batch</th>
+                    <th className="py-2.5 px-3">Score</th>
+                    <th className="py-2.5 px-3">Tags</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -582,26 +687,34 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
                           : ''
                       }`}
                     >
-                      <td className="py-2 px-3 font-semibold">
+                      <td className="py-2 px-3 font-semibold whitespace-nowrap">
                         {!row.isValid ? (
                           <span className="text-rose-400 bg-rose-950 px-1.5 py-0.5 rounded border border-rose-800">
                             Skipped: {row.validationError}
                           </span>
                         ) : row.isDuplicate ? (
                           <span className="text-amber-400 bg-amber-950 px-1.5 py-0.5 rounded border border-amber-800">
-                            Duplicate Phone ({duplicateStrategy.toUpperCase()})
+                            Duplicate ({duplicateStrategy.toUpperCase()})
                           </span>
                         ) : (
                           <span className="text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-800">
-                            Ready to Import
+                            Ready
                           </span>
                         )}
                       </td>
-                      <td className="py-2 px-3 font-semibold text-slate-100">{row.mappedName || '—'}</td>
-                      <td className="py-2 px-3 font-mono">{row.mappedPhone || '—'}</td>
-                      <td className="py-2 px-3 text-slate-400">{row.mappedEmail || '—'}</td>
-                      <td className="py-2 px-3">{row.mappedCourse}</td>
-                      <td className="py-2 px-3 text-slate-400">{row.mappedSource}</td>
+                      <td className="py-2 px-3 font-semibold text-slate-100 whitespace-nowrap">{row.mappedName || '—'}</td>
+                      <td className="py-2 px-3 font-mono whitespace-nowrap">{row.mappedPhone || '—'}</td>
+                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{row.mappedEmail || '—'}</td>
+                      <td className="py-2 px-3 text-slate-400 max-w-[150px] truncate" title={row.mappedAddress}>{row.mappedAddress || '—'}</td>
+                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{row.mappedSource}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">{row.mappedCourse}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">{row.mappedClassMode}</td>
+                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{row.mappedDob || '—'}</td>
+                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{row.mappedBatch}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">{row.mappedLeadScore}</td>
+                      <td className="py-2 px-3 text-slate-400 max-w-[150px] truncate" title={row.mappedTags.join(', ')}>
+                        {row.mappedTags.length > 0 ? row.mappedTags.join(', ') : '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -611,7 +724,7 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
               <button
                 onClick={() => setStep('mapping')}
-                className="px-4 py-2 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-lg"
+                className="px-4 py-2 border border-slate-800 text-slate-400 hover:text-slate-200 rounded-lg cursor-pointer"
               >
                 Back to Mapping
               </button>
@@ -636,7 +749,7 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
             <div>
               <h3 className="text-xl font-bold text-slate-100">CSV Import Completed!</h3>
               <p className="text-xs text-slate-400 mt-1">
-                Leads have been parsed and synchronized into your CRM local database.
+                Leads have been parsed and synchronized into your CRM database.
               </p>
             </div>
 
@@ -669,3 +782,4 @@ export const CSVImportModal: React.FC<CSVImportModalProps> = ({
     </div>
   );
 };
+

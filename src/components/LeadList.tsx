@@ -19,6 +19,8 @@ import {
   Users,
   Trash2,
   GraduationCap,
+  FileSpreadsheet,
+  RefreshCw,
 } from 'lucide-react';
 import {
   formatRelativeDate,
@@ -42,6 +44,10 @@ interface LeadListProps {
   initialStatusFilter?: string;
   isLostLeadsView?: boolean;
   isAdmissionsView?: boolean;
+  onOpenGoogleSheetsModal?: () => void;
+  onTriggerSheetSync?: () => void;
+  isSheetSyncing?: boolean;
+  sheetsConfigured?: boolean;
 }
 
 export const LeadList: React.FC<LeadListProps> = ({
@@ -57,6 +63,10 @@ export const LeadList: React.FC<LeadListProps> = ({
   initialStatusFilter = 'ALL',
   isLostLeadsView = false,
   isAdmissionsView = false,
+  onOpenGoogleSheetsModal,
+  onTriggerSheetSync,
+  isSheetSyncing = false,
+  sheetsConfigured = false,
 }) => {
   // Filter state
   const [filterState, setFilterState] = useState<LeadFilterState>({
@@ -224,8 +234,8 @@ export const LeadList: React.FC<LeadListProps> = ({
     <div className="p-4 sm:p-8 space-y-4 max-w-7xl mx-auto">
       {/* Title & Filter Controls Bar */}
       <div className="glass p-4 rounded-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        {/* Left Search */}
-        <div className="flex-1 flex items-center gap-3">
+        {/* Left Search & Google Sheets Actions */}
+        <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -236,6 +246,33 @@ export const LeadList: React.FC<LeadListProps> = ({
               className="w-full bg-slate-900/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-xs rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-teal-500"
             />
           </div>
+
+          {onOpenGoogleSheetsModal && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={onOpenGoogleSheetsModal}
+                className="bg-emerald-950/80 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-800/80 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                title="Configure Google Sheets Auto-Sync & Column Mapping"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden xs:inline">Google Sheet</span>
+                {sheetsConfigured && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                )}
+              </button>
+
+              {onTriggerSheetSync && sheetsConfigured && (
+                <button
+                  onClick={onTriggerSheetSync}
+                  disabled={isSheetSyncing}
+                  className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 p-2 rounded-lg text-xs font-medium flex items-center justify-center transition-all cursor-pointer disabled:opacity-50"
+                  title="Sync Now from Google Sheet"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSheetSyncing ? 'animate-spin text-teal-400' : ''}`} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Filters Row */}

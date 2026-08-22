@@ -23,6 +23,7 @@ interface SidebarProps {
   onOpenAddLead: () => void;
   overdueCount: number;
   dueTodayCount: number;
+  newSheetLeadsCount?: number;
   onLogout?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
@@ -35,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAddLead,
   overdueCount,
   dueTodayCount,
+  newSheetLeadsCount = 0,
   onLogout,
   isMobileOpen = false,
   onCloseMobile,
@@ -54,6 +56,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'leads' as NavView,
       label: 'Lead Directory',
       icon: Users,
+      badge: newSheetLeadsCount > 0 ? `+${newSheetLeadsCount} New` : undefined,
+      badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 animate-pulse',
     },
     {
       id: 'admissions' as NavView,

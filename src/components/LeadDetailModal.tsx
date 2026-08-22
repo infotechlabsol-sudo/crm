@@ -155,7 +155,7 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
     onClose();
   };
 
-  const ADMISSION_APP_URL = "https://tech-lab-admission.ai.studio";
+  const ADMISSION_APP_URL = "https://admin.techlabacademy.in";
 
   const handleConvertToAdmission = () => {
     const nowISO = new Date().toISOString();
@@ -176,8 +176,8 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
     };
     onSaveLead(updatedLead);
     
-    // Open in new tab
-    window.open(`${ADMISSION_APP_URL}?lead_id=${lead.id}`, '_blank');
+    // Open in new tab with leadId parameter
+    window.open(`https://admin.techlabacademy.in?leadId=${lead.id}`, '_blank');
   };
 
   const badgeStyle = getStatusBadgeClass(status);
@@ -223,20 +223,26 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
 
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            {!lead.converted_to_student && (
+            {!lead.converted_to_student ? (
               <button
                 onClick={handleConvertToAdmission}
                 className="flex items-center gap-1.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-lg border border-teal-500/20 transition-all cursor-pointer"
+                title="Convert lead to Admission record"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
                 <span>Convert</span>
               </button>
-            )}
-            {lead.converted_to_student && (
-              <span className="inline-flex items-center gap-1.5 bg-emerald-950 border border-emerald-800 text-emerald-400 text-xs font-bold px-3 py-2 rounded-lg">
+            ) : (
+              <a
+                href={`https://admin.techlabacademy.in?leadId=${lead.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-400 text-xs font-bold px-3 py-2 rounded-lg transition-all cursor-pointer shadow-sm"
+                title="Open Admission Form (admin.techlabacademy.in)"
+              >
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Converted</span>
-              </span>
+              </a>
             )}
 
             <a

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../lib/storage';
-import { Video, Lock, Mail, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Video, Lock, Mail, Eye, EyeOff, Loader2, KeyRound } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -9,54 +9,52 @@ export const LoginView: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [infoMessage, setInfoMessage] = useState('');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      setError('Please fill in both fields.');
+      setError('Please enter both email and password.');
       return;
     }
     setError('');
+    setInfoMessage('');
     setLoading(true);
 
     try {
-      if (isRegistering) {
-        // Explicitly register new admin
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        try {
-          // Attempt standard sign in
-          await signInWithEmailAndPassword(auth, email, password);
-        } catch (signInErr: any) {
-          // Fallback to auto-create on first-time login if user is not found (helps first-time users immensely!)
-          if (
-            signInErr.code === 'auth/user-not-found' ||
-            signInErr.code === 'auth/invalid-credential' ||
-            signInErr.message?.includes('user-not-found')
-          ) {
-            // Let the user know we can create the account or let them try to create it
-            setError('Account not found or password incorrect. If this is your first time, click "Create Admin Account" below.');
-            setLoading(false);
-            return;
-          } else {
-            throw signInErr;
-          }
-        }
-      }
+      await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch (err: any) {
       console.error('Authentication error:', err);
-      if (err.code === 'auth/weak-password') {
-        setError('Password must be at least 6 characters.');
-      } else if (err.code === 'auth/invalid-email') {
-        setError('Please enter a valid email address.');
-      } else if (err.code === 'auth/email-already-in-use') {
-        setError('This email is already registered. Please sign in instead.');
-      } else {
-        setError(err.message || 'Authentication failed. Please check your credentials.');
-      }
+      // Uniform generic error message to prevent user enumeration
+      setError('Invalid email or password. Please verify your credentials.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail) {
+      setError('Please enter your admin email address.');
+      return;
+    }
+    setError('');
+    setInfoMessage('');
+    setResetLoading(true);
+
+    try {
+      await sendPasswordResetEmail(auth, resetEmail.trim());
+    } catch (err: any) {
+      console.error('Password reset request error:', err);
+      // Even if user not found, don't leak account existence
+    } finally {
+      setResetLoading(false);
+      setInfoMessage('If an account is associated with this email, a password reset link has been sent to your inbox.');
+      setShowForgotPassword(false);
+      setResetEmail('');
     }
   };
 
@@ -90,14 +88,21 @@ export const LoginView: React.FC = () => {
         {/* Title */}
         <div className="text-center">
           <h2 className="text-sm font-semibold text-slate-200">
-            {isRegistering ? 'Setup Single Admin Account' : 'Sign in to Admin Dashboard'}
+            {showForgotPassword ? 'Reset Password' : 'Sign in to Admin Dashboard'}
           </h2>
           <p className="text-[10px] text-slate-500 mt-0.5">
-            {isRegistering 
-              ? 'Create your administrative password' 
+            {showForgotPassword 
+              ? 'Enter your email to receive password reset instructions' 
               : 'Enter your administrative credentials to continue'}
           </p>
         </div>
+
+        {/* Success / Info Message */}
+        {infoMessage && (
+          <div className="bg-emerald-950/50 border border-emerald-800/60 rounded-xl p-3 text-emerald-300 font-medium leading-relaxed">
+            {infoMessage}
+          </div>
+        )}
 
         {/* Error Alert */}
         {error && (
@@ -106,84 +111,133 @@ export const LoginView: React.FC = () => {
           </div>
         )}
 
-        {/* Login Form */}
-        <form onSubmit={handleLogin} className="space-y-4">
-          
-          {/* Email input */}
-          <div className="space-y-1">
-            <label className="block font-medium text-slate-300">Admin Email</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@techlab.com"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors font-medium"
-              />
+        {/* Forgot Password Sub-View */}
+        {showForgotPassword ? (
+          <form onSubmit={handlePasswordReset} className="space-y-4">
+            <div className="space-y-1">
+              <label className="block font-medium text-slate-300">Admin Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+                <input
+                  type="email"
+                  required
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="admin@techlabacademy.in"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors font-medium"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Password input */}
-          <div className="space-y-1">
-            <label className="block font-medium text-slate-300">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-10 py-2.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors font-mono"
-              />
+            <button
+              type="submit"
+              disabled={resetLoading}
+              className="w-full bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-teal-950/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              {resetLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Sending Reset Link...</span>
+                </>
+              ) : (
+                <>
+                  <KeyRound className="w-4 h-4" />
+                  <span>Send Password Reset Link</span>
+                </>
+              )}
+            </button>
+
+            <div className="text-center pt-2">
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-2.5 p-0.5 text-slate-500 hover:text-slate-300 transition-colors"
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setError('');
+                }}
+                className="text-slate-400 hover:text-slate-200 transition-colors cursor-pointer text-xs"
               >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                Back to Login
               </button>
             </div>
-          </div>
+          </form>
+        ) : (
+          /* Standard Login Form */
+          <form onSubmit={handleLogin} className="space-y-4">
+            
+            {/* Email input */}
+            <div className="space-y-1">
+              <label className="block font-medium text-slate-300">Admin Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="admin@techlabacademy.in"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors font-medium"
+                />
+              </div>
+            </div>
 
-          {/* Submit button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-teal-950/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin text-white" />
-                <span>Processing...</span>
-              </>
-            ) : (
-              <span>{isRegistering ? 'Create Admin & Login' : 'Secure Admin Login'}</span>
-            )}
-          </button>
-        </form>
+            {/* Password input */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="block font-medium text-slate-300">Password</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForgotPassword(true);
+                    setResetEmail(email);
+                    setError('');
+                    setInfoMessage('');
+                  }}
+                  className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors cursor-pointer"
+                >
+                  Forgot Password?
+                </button>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-10 py-2.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500 transition-colors font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 p-0.5 text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
 
-        {/* Setup Toggles */}
-        <div className="text-center pt-2 border-t border-slate-800">
-          <button
-            type="button"
-            onClick={() => {
-              setIsRegistering(!isRegistering);
-              setError('');
-            }}
-            className="text-teal-400 hover:text-teal-300 font-medium transition-colors cursor-pointer"
-          >
-            {isRegistering 
-              ? 'Already have an Admin account? Sign In' 
-              : 'First time using this CRM? Create Admin Account'}
-          </button>
-        </div>
+            {/* Submit button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-teal-950/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Signing In...</span>
+                </>
+              ) : (
+                <span>Log In</span>
+              )}
+            </button>
+          </form>
+        )}
 
         {/* Footer info */}
-        <div className="text-center text-[10px] text-slate-600">
-          Secure offline database transitioned to Google Cloud Firestore.
+        <div className="text-center text-[10px] text-slate-600 pt-2 border-t border-slate-800/80">
+          Admin Portal &bull; Protected Access Only
         </div>
       </div>
     </div>

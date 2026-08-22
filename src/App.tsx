@@ -32,6 +32,16 @@ import { BulkWhatsAppModal } from './components/BulkWhatsAppModal';
 import { SettingsView } from './components/SettingsView';
 import { LoginView } from './components/LoginView';
 import { Loader2 } from 'lucide-react';
+import {
+  GoogleSheetsConfig,
+  DEFAULT_SHEETS_CONFIG,
+  fetchGoogleSheetData,
+  processSheetSync,
+  playNotificationSound,
+  ImportIssue,
+} from './lib/googleSheetsSync';
+import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
+import { SyncToastNotification, ToastMessage } from './components/SyncToastNotification';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -88,6 +98,113 @@ export default function App() {
   const [showBulkWhatsAppModal, setShowBulkWhatsAppModal] = useState(false);
   const [bulkWhatsAppLeadIds, setBulkWhatsAppLeadIds] = useState<string[]>([]);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // Google Sheets Auto-Sync state
+  const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig>(() => {
+    try {
+      const saved = localStorage.getItem('techlab_crm_google_sheets_config');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return DEFAULT_SHEETS_CONFIG;
+  });
+  const [showSheetsModal, setShowSheetsModal] = useState(false);
+  const [isSheetsSyncing, setIsSheetsSyncing] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [newSheetLeadsCount, setNewSheetLeadsCount] = useState(0);
+  const [skippedRowsHistory, setSkippedRowsHistory] = useState<ImportIssue[]>([]);
+
+  const handleSaveSheetsConfig = (newConfig: GoogleSheetsConfig) => {
+    setSheetsConfig(newConfig);
+    try {
+      localStorage.setItem('techlab_crm_google_sheets_config', JSON.stringify(newConfig));
+    } catch (e) {}
+  };
+
+  const handleDismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const runGoogleSheetSync = async (): Promise<{ createdCount: number; updatedCount: number; skippedCount: number }> => {
+    if (!sheetsConfig.sheetUrlOrId.trim()) {
+      throw new Error('No Google Sheet URL or ID configured.');
+    }
+
+    setIsSheetsSyncing(true);
+    try {
+      const data = await fetchGoogleSheetData(sheetsConfig.sheetUrlOrId, sheetsConfig.sheetName);
+      const currentLeads = getLeads();
+
+      const result = processSheetSync({
+        rows: data.rows,
+        mapping: sheetsConfig.columnMapping,
+        existingLeads: currentLeads,
+        settings: effectiveSettings,
+      });
+
+      // Save updated leads
+      if (result.createdCount > 0 || result.updatedCount > 0) {
+        saveLeads(result.updatedLeads);
+        refreshLeads();
+
+        // Play sound chime
+        playNotificationSound();
+
+        // Show Toast Notifications
+        if (result.createdLeadDetails.length > 0 && result.createdLeadDetails.length <= 3) {
+          result.createdLeadDetails.forEach((ld, i) => {
+            const toastId = 'toast_' + Date.now() + '_' + i;
+            setToasts((prev) => [
+              ...prev,
+              {
+                id: toastId,
+                title: `⚡ New Lead: ${ld.name}`,
+                subtitle: `Source: ${ld.source}`,
+              },
+            ]);
+            setTimeout(() => handleDismissToast(toastId), 5000);
+          });
+        } else {
+          const toastId = 'toast_summary_' + Date.now();
+          setToasts((prev) => [
+            ...prev,
+            {
+              id: toastId,
+              title: `⚡ Google Sheet Sync Complete`,
+              subtitle: `${result.createdCount} new lead(s) added, ${result.updatedCount} lead(s) updated.`,
+            },
+          ]);
+          setTimeout(() => handleDismissToast(toastId), 5000);
+        }
+
+        if (currentView !== 'leads' && result.createdCount > 0) {
+          setNewSheetLeadsCount((prev) => prev + result.createdCount);
+        }
+      }
+
+      setSkippedRowsHistory(result.skippedRows);
+
+      const updatedConfig: GoogleSheetsConfig = {
+        ...sheetsConfig,
+        lastSyncTime: new Date().toISOString(),
+        lastSyncResult: {
+          createdCount: result.createdCount,
+          updatedCount: result.updatedCount,
+          skippedCount: result.skippedRows.length,
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      handleSaveSheetsConfig(updatedConfig);
+
+      return {
+        createdCount: result.createdCount,
+        updatedCount: result.updatedCount,
+        skippedCount: result.skippedRows.length,
+      };
+    } finally {
+      setIsSheetsSyncing(false);
+    }
+  };
 
   // Local static fallback for settings
   function DEFAULT_SETTINGS_LOCAL_FALLBACK(): CRMSettings {
@@ -180,6 +297,28 @@ export default function App() {
       unsubscribeBatches();
     };
   }, [user]);
+
+  // 5-Minute Auto-Sync Interval
+  useEffect(() => {
+    if (!sheetsConfig.autoSyncEnabled || !sheetsConfig.sheetUrlOrId || dataLoading) {
+      return;
+    }
+
+    // Initial check on load
+    const initialTimer = setTimeout(() => {
+      runGoogleSheetSync().catch((e) => console.log('Auto sync error:', e));
+    }, 4000);
+
+    const intervalMs = (sheetsConfig.syncIntervalMinutes || 5) * 60 * 1000;
+    const interval = setInterval(() => {
+      runGoogleSheetSync().catch((e) => console.log('Auto sync error:', e));
+    }, intervalMs);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [sheetsConfig.autoSyncEnabled, sheetsConfig.sheetUrlOrId, sheetsConfig.syncIntervalMinutes, dataLoading]);
 
   const refreshLeads = () => {
     // Real-time onSnapshot updates React state automatically
@@ -316,8 +455,11 @@ export default function App() {
       Name: l.name,
       Phone: l.phone,
       Email: l.email || '',
+      Address: l.address || '',
       Source: l.source,
       Course_Interest: l.course_interest,
+      Class_Mode: l.class_mode || 'Offline',
+      DOB: l.dob || '',
       Status: l.status,
       Assigned_Batch: l.assigned_batch || '',
       Lead_Score: l.lead_score,
@@ -432,11 +574,15 @@ export default function App() {
         currentView={currentView}
         onSelectView={(v) => {
           setCurrentView(v);
-          if (v === 'leads') setLeadListStatusFilter('ALL');
+          if (v === 'leads') {
+            setLeadListStatusFilter('ALL');
+            setNewSheetLeadsCount(0);
+          }
         }}
         onOpenAddLead={() => setShowAddLeadModal(true)}
         overdueCount={overdueCount}
         dueTodayCount={dueTodayCount}
+        newSheetLeadsCount={newSheetLeadsCount}
         onLogout={() => signOut(auth)}
         isMobileOpen={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
@@ -507,6 +653,10 @@ export default function App() {
               initialStatusFilter={currentView === 'lost' ? 'Lost' : currentView === 'admissions' ? 'Enrolled' : leadListStatusFilter}
               isLostLeadsView={currentView === 'lost'}
               isAdmissionsView={currentView === 'admissions'}
+              onOpenGoogleSheetsModal={() => setShowSheetsModal(true)}
+              onTriggerSheetSync={runGoogleSheetSync}
+              isSheetSyncing={isSheetsSyncing}
+              sheetsConfigured={Boolean(sheetsConfig.sheetUrlOrId)}
             />
           )}
 
@@ -586,6 +736,22 @@ export default function App() {
           onAddBulkNote={handleAddBulkNote}
         />
       )}
+
+      {/* 4. Google Sheets Sync Modal */}
+      {showSheetsModal && (
+        <GoogleSheetsSyncModal
+          config={sheetsConfig}
+          settings={effectiveSettings}
+          onSaveConfig={handleSaveSheetsConfig}
+          onRunSyncNow={runGoogleSheetSync}
+          onClose={() => setShowSheetsModal(false)}
+          isSyncing={isSheetsSyncing}
+          skippedRowsHistory={skippedRowsHistory}
+        />
+      )}
+
+      {/* Top Right Toast Notifications */}
+      <SyncToastNotification toasts={toasts} onDismiss={handleDismissToast} />
     </div>
   );
 }
