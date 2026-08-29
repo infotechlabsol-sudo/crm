@@ -14,6 +14,8 @@ import {
   Check,
   Mail,
 } from 'lucide-react';
+import { SendWhatsAppModal } from './SendWhatsAppModal';
+import { SendEmailModal } from './SendEmailModal';
 
 const DEFAULT_EMAIL_TEMPLATE = {
   subject: "Learn {{course_interest}} at Tech Lab Academy — Batch Details Inside",
@@ -39,7 +41,6 @@ info.techlabsol@gmail.com`
 import {
   getStatusBadgeClass,
   getScoreBadgeClass,
-  createWhatsAppLink,
   createTelLink,
   toDatetimeLocalValue,
   formatDateTime,
@@ -103,6 +104,8 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
   // Note State
   const [newNoteText, setNewNoteText] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
 
   // Status handle
   const handleStatusSelect = (newSt: LeadStatus) => {
@@ -253,45 +256,25 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
               <span>Call</span>
             </a>
 
-            <a
-              href={createWhatsAppLink(phone, waMessageText)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-teal-900 text-teal-400 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-700 transition-all"
+            <button
+              type="button"
+              onClick={() => setShowWhatsAppModal(true)}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-teal-900 text-teal-400 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-700 transition-all cursor-pointer"
+              title="Send WhatsApp Message"
             >
               <MessageCircle className="w-3.5 h-3.5" />
               <span>WhatsApp</span>
-            </a>
+            </button>
 
-            {email ? (
-              <a
-                href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(
-                  DEFAULT_EMAIL_TEMPLATE.subject
-                    .replace('{{name}}', name)
-                    .replace('{{course_interest}}', courseInterest)
-                )}&body=${encodeURIComponent(
-                  DEFAULT_EMAIL_TEMPLATE.body
-                    .replace('{{name}}', name)
-                    .replace('{{course_interest}}', courseInterest)
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 bg-slate-800 hover:bg-blue-900 text-blue-400 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-700 transition-all"
-                title="Send Email via Gmail"
-              >
-                <Mail className="w-3.5 h-3.5" />
-                <span>Email</span>
-              </a>
-            ) : (
-              <button
-                disabled
-                className="flex items-center gap-1.5 bg-slate-900 text-slate-600 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-850 cursor-not-allowed opacity-50"
-                title="No email address on file"
-              >
-                <Mail className="w-3.5 h-3.5" />
-                <span>Email</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setShowEmailModal(true)}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-blue-900 text-blue-400 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-700 transition-all cursor-pointer"
+              title="Send Email"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              <span>Email</span>
+            </button>
 
             <button
               onClick={onClose}
@@ -633,6 +616,40 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* WhatsApp Message Compose & Send Popup Modal */}
+      {showWhatsAppModal && (
+        <SendWhatsAppModal
+          lead={{
+            ...lead,
+            name: name.trim() || lead.name,
+            phone: phone || lead.phone,
+            email: email.trim() || lead.email,
+            course_interest: courseInterest || lead.course_interest,
+            assigned_batch: assignedBatch || lead.assigned_batch,
+            source: source || lead.source,
+          }}
+          settings={settings}
+          onClose={() => setShowWhatsAppModal(false)}
+        />
+      )}
+
+      {/* Email Compose & Send Popup Modal via EmailJS */}
+      {showEmailModal && (
+        <SendEmailModal
+          lead={{
+            ...lead,
+            name: name.trim() || lead.name,
+            phone: phone || lead.phone,
+            email: email.trim() || lead.email,
+            course_interest: courseInterest || lead.course_interest,
+            assigned_batch: assignedBatch || lead.assigned_batch,
+            source: source || lead.source,
+          }}
+          settings={settings}
+          onClose={() => setShowEmailModal(false)}
+        />
+      )}
     </div>
   );
 };

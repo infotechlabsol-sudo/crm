@@ -16,9 +16,28 @@ import {
   subscribeToSettings,
   subscribeToCourses,
   subscribeToBatches,
+  subscribeToWhatsAppTemplates,
+  subscribeToEmailTemplates,
+  subscribeToCustomForms,
+  createCustomForm,
+  updateCustomForm,
+  toggleCustomFormActive,
+  deleteCustomForm,
+  DEFAULT_WHATSAPP_TEMPLATES,
+  DEFAULT_EMAIL_TEMPLATES,
+  DEFAULT_SAMPLE_CUSTOM_FORMS,
 } from './lib/storage';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { Lead, LeadStatus, CRMSettings, CourseItem, BatchItem } from './types';
+import {
+  Lead,
+  LeadStatus,
+  CRMSettings,
+  CourseItem,
+  BatchItem,
+  WhatsAppTemplate,
+  EmailTemplate,
+  CustomForm,
+} from './types';
 import { getFollowUpCategory } from './lib/utils';
 import { Sidebar, NavView } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -29,7 +48,11 @@ import { LeadFormModal } from './components/LeadFormModal';
 import { CSVImportModal } from './components/CSVImportModal';
 import { FollowUpView } from './components/FollowUpView';
 import { BulkWhatsAppModal } from './components/BulkWhatsAppModal';
+import { SendWhatsAppModal } from './components/SendWhatsAppModal';
+import { SendEmailModal } from './components/SendEmailModal';
 import { SettingsView } from './components/SettingsView';
+import { CustomFormsView } from './components/CustomFormsView';
+import { PublicFormView } from './components/PublicFormView';
 import { LoginView } from './components/LoginView';
 import { Loader2 } from 'lucide-react';
 import {
@@ -48,6 +71,21 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(true);
 
+  // Check for public form URL query param e.g. ?public_form=XYZ or ?form_id=XYZ or hash #form/XYZ
+  const [publicFormId, setPublicFormId] = useState<string | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const qForm = params.get('public_form') || params.get('form_id') || params.get('form');
+      if (qForm) return qForm;
+
+      const hash = window.location.hash;
+      if (hash.startsWith('#form/')) {
+        return hash.replace('#form/', '');
+      }
+    } catch (e) {}
+    return null;
+  });
+
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('tech_lab_crm_theme') as 'light' | 'dark') || 'dark';
   });
@@ -61,6 +99,9 @@ export default function App() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [coursesList, setCoursesList] = useState<CourseItem[]>([]);
   const [batchesList, setBatchesList] = useState<BatchItem[]>([]);
+  const [whatsAppTemplates, setWhatsAppTemplates] = useState<WhatsAppTemplate[]>(DEFAULT_WHATSAPP_TEMPLATES);
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>(DEFAULT_EMAIL_TEMPLATES);
+  const [customForms, setCustomForms] = useState<CustomForm[]>(DEFAULT_SAMPLE_CUSTOM_FORMS);
   const [settings, setSettings] = useState<CRMSettings>(DEFAULT_SETTINGS_LOCAL_FALLBACK());
 
   // Live active courses and batches from Firestore collections
@@ -97,6 +138,8 @@ export default function App() {
   const [showAddLeadModal, setShowAddLeadModal] = useState(false);
   const [showBulkWhatsAppModal, setShowBulkWhatsAppModal] = useState(false);
   const [bulkWhatsAppLeadIds, setBulkWhatsAppLeadIds] = useState<string[]>([]);
+  const [whatsAppModalLead, setWhatsAppModalLead] = useState<Lead | null>(null);
+  const [emailModalLead, setEmailModalLead] = useState<Lead | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Google Sheets Auto-Sync state
@@ -290,11 +333,41 @@ export default function App() {
       }
     );
 
+    const unsubscribeWhatsAppTemplates = subscribeToWhatsAppTemplates(
+      (loaded) => {
+        setWhatsAppTemplates(loaded);
+      },
+      (error) => {
+        console.error('WhatsApp templates subscription error:', error);
+      }
+    );
+
+    const unsubscribeEmailTemplates = subscribeToEmailTemplates(
+      (loaded) => {
+        setEmailTemplates(loaded);
+      },
+      (error) => {
+        console.error('Email templates subscription error:', error);
+      }
+    );
+
+    const unsubscribeCustomForms = subscribeToCustomForms(
+      (loadedForms) => {
+        setCustomForms(loadedForms);
+      },
+      (error) => {
+        console.error('Custom forms subscription error:', error);
+      }
+    );
+
     return () => {
       unsubscribeLeads();
       unsubscribeSettings();
       unsubscribeCourses();
       unsubscribeBatches();
+      unsubscribeWhatsAppTemplates();
+      unsubscribeEmailTemplates();
+      unsubscribeCustomForms();
     };
   }, [user]);
 
@@ -448,6 +521,29 @@ export default function App() {
     }
   };
 
+  const handleMarkFollowUpDone = (leadId: string) => {
+    const currentLeads = getLeads();
+    const lead = currentLeads.find((l) => l.id === leadId);
+    if (lead) {
+      const nowISO = new Date().toISOString();
+      lead.next_followup_date = '';
+      lead.last_contacted_date = nowISO;
+      lead.notes_history = lead.notes_history || [];
+      lead.notes_history.unshift({
+        id: 'n_done_' + Date.now(),
+        note_text: 'Follow-up marked as completed.',
+        timestamp: nowISO,
+        added_by: 'Admin',
+        is_system: true,
+      });
+      saveLead(lead);
+      refreshLeads();
+      if (selectedLead && selectedLead.id === leadId) {
+        setSelectedLead({ ...lead });
+      }
+    }
+  };
+
   // CSV Export Utility
   const handleExportCSV = (leadsToExport: Lead[] = leads) => {
     const exportData = leadsToExport.map((l) => ({
@@ -527,6 +623,10 @@ export default function App() {
       title: 'Lost Leads Archive',
       subtitle: 'View and reactivate student leads marked as Lost',
     },
+    forms: {
+      title: 'Sharable Lead Forms',
+      subtitle: 'Create, share, and track public lead capture pages',
+    },
     followups: {
       title: 'Follow-ups & Agendas',
       subtitle: 'Schedule of student calls, demos, and WhatsApp check-ins',
@@ -544,6 +644,25 @@ export default function App() {
   const currentHeaderInfo = viewTitles[currentView];
 
   const bulkWhatsAppLeads = leads.filter((l) => bulkWhatsAppLeadIds.includes(l.id));
+
+  // If a public form URL is accessed, display the form page directly with NO login required
+  if (publicFormId) {
+    return (
+      <PublicFormView
+        formId={publicFormId}
+        onExit={() => {
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('public_form');
+            url.searchParams.delete('form_id');
+            url.searchParams.delete('form');
+            window.history.pushState({}, '', url.pathname);
+          } catch (e) {}
+          setPublicFormId(null);
+        }}
+      />
+    );
+  }
 
   if (authLoading) {
     return (
@@ -583,6 +702,7 @@ export default function App() {
         overdueCount={overdueCount}
         dueTodayCount={dueTodayCount}
         newSheetLeadsCount={newSheetLeadsCount}
+        formsCount={customForms.length}
         onLogout={() => signOut(auth)}
         isMobileOpen={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
@@ -614,6 +734,10 @@ export default function App() {
           theme={theme}
           onToggleTheme={toggleTheme}
           onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+          leads={leads}
+          onSelectLead={(l) => setSelectedLead(l)}
+          onMarkFollowUpDone={handleMarkFollowUpDone}
+          onNavigateToFollowups={() => setCurrentView('followups')}
         />
 
         {/* View Switcher Container */}
@@ -633,6 +757,8 @@ export default function App() {
               onNavigateToAdmissions={() => setCurrentView('admissions')}
               onNavigateToFollowups={() => setCurrentView('followups')}
               onOpenAddLead={() => setShowAddLeadModal(true)}
+              onOpenWhatsApp={(l) => setWhatsAppModalLead(l)}
+              onOpenEmail={(l) => setEmailModalLead(l)}
             />
           )}
 
@@ -657,6 +783,8 @@ export default function App() {
               onTriggerSheetSync={runGoogleSheetSync}
               isSheetSyncing={isSheetsSyncing}
               sheetsConfigured={Boolean(sheetsConfig.sheetUrlOrId)}
+              onOpenWhatsApp={(l) => setWhatsAppModalLead(l)}
+              onOpenEmail={(l) => setEmailModalLead(l)}
             />
           )}
 
@@ -668,6 +796,8 @@ export default function App() {
               onCustomReschedule={handleCustomReschedule}
               onMarkContacted={handleMarkContacted}
               onOpenAddLead={() => setShowAddLeadModal(true)}
+              onOpenWhatsApp={(l) => setWhatsAppModalLead(l)}
+              onOpenEmail={(l) => setEmailModalLead(l)}
             />
           )}
 
@@ -680,11 +810,43 @@ export default function App() {
             />
           )}
 
+          {currentView === 'forms' && (
+            <div className="p-4 sm:p-6">
+              <CustomFormsView
+                forms={customForms}
+                leads={leads}
+                settings={effectiveSettings}
+                onCreateForm={async (formData) => {
+                  return await createCustomForm(formData);
+                }}
+                onUpdateForm={async (id, formData) => {
+                  await updateCustomForm(id, formData);
+                }}
+                onToggleActive={async (id, active) => {
+                  await toggleCustomFormActive(id, active);
+                }}
+                onDeleteForm={async (id) => {
+                  await deleteCustomForm(id);
+                }}
+                onViewSubmissions={(formName) => {
+                  setGlobalSearch(formName);
+                  setLeadListStatusFilter('ALL');
+                  setCurrentView('leads');
+                }}
+                onOpenPublicForm={(formId) => {
+                  setPublicFormId(formId);
+                }}
+              />
+            </div>
+          )}
+
           {currentView === 'settings' && (
             <SettingsView
               settings={effectiveSettings}
               coursesList={coursesList}
               batchesList={batchesList}
+              whatsAppTemplates={whatsAppTemplates}
+              emailTemplates={emailTemplates}
               onSaveSettings={(newSettings) => {
                 saveSettings(newSettings);
                 setSettings(newSettings);
@@ -732,6 +894,7 @@ export default function App() {
         <BulkWhatsAppModal
           selectedLeads={bulkWhatsAppLeads.length > 0 ? bulkWhatsAppLeads : leads}
           settings={effectiveSettings}
+          whatsAppTemplates={whatsAppTemplates}
           onClose={() => setShowBulkWhatsAppModal(false)}
           onAddBulkNote={handleAddBulkNote}
         />
@@ -747,6 +910,26 @@ export default function App() {
           onClose={() => setShowSheetsModal(false)}
           isSyncing={isSheetsSyncing}
           skippedRowsHistory={skippedRowsHistory}
+        />
+      )}
+
+      {/* 5. Individual Send WhatsApp Modal */}
+      {whatsAppModalLead && (
+        <SendWhatsAppModal
+          lead={whatsAppModalLead}
+          settings={effectiveSettings}
+          whatsAppTemplates={whatsAppTemplates}
+          onClose={() => setWhatsAppModalLead(null)}
+        />
+      )}
+
+      {/* 6. Individual Send Email Modal via EmailJS */}
+      {emailModalLead && (
+        <SendEmailModal
+          lead={emailModalLead}
+          settings={effectiveSettings}
+          emailTemplates={emailTemplates}
+          onClose={() => setEmailModalLead(null)}
         />
       )}
 

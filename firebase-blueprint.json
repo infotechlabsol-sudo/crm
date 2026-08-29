@@ -55,12 +55,54 @@
         "created_timestamp": { "type": "string" }
       },
       "required": ["name", "active"]
+    },
+    "WhatsAppTemplate": {
+      "title": "WhatsApp Template",
+      "description": "Template for WhatsApp messages with placeholders",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "message": { "type": "string" },
+        "created_timestamp": { "type": "string" }
+      },
+      "required": ["name", "message"]
+    },
+    "EmailTemplate": {
+      "title": "Email Template",
+      "description": "Rich HTML template for Email messages with placeholders",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "message": { "type": "string" },
+        "created_timestamp": { "type": "string" }
+      },
+      "required": ["name", "subject", "message"]
+    },
+    "CustomForm": {
+      "title": "Custom Form",
+      "description": "Sharable lead capture form",
+      "type": "object",
+      "properties": {
+        "form_name": { "type": "string" },
+        "form_title": { "type": "string" },
+        "form_description": { "type": "string" },
+        "fields": { "type": "array" },
+        "active": { "type": "boolean" },
+        "created_timestamp": { "type": "string" },
+        "submission_count": { "type": "number" }
+      },
+      "required": ["form_name", "form_title", "fields", "active"]
     }
   },
   "firestore": {
     "/leads/{leadId}": {
       "schema": "Lead",
       "description": "Collection of student inquiry leads"
+    },
+    "/custom_forms/{formId}": {
+      "schema": "CustomForm",
+      "description": "Collection of sharable lead capture forms"
     },
     "/settings/config": {
       "schema": "CRMSettings",
@@ -73,6 +115,14 @@
     "/batches/{batchId}": {
       "schema": "Batch",
       "description": "Collection of available batch options"
+    },
+    "/whatsapp_templates/{templateId}": {
+      "schema": "WhatsAppTemplate",
+      "description": "Collection of WhatsApp message templates"
+    },
+    "/email_templates/{templateId}": {
+      "schema": "EmailTemplate",
+      "description": "Collection of Email message templates"
     }
   }
 }

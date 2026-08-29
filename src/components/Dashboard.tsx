@@ -8,6 +8,7 @@ import {
   TrendingUp,
   PhoneCall,
   MessageCircle,
+  Mail,
   Clock,
   ArrowRight,
   CheckCircle2,
@@ -16,7 +17,6 @@ import {
 import {
   formatRelativeDate,
   getFollowUpCategory,
-  createWhatsAppLink,
   createTelLink,
   getStatusBadgeClass,
 } from '../lib/utils';
@@ -37,6 +37,8 @@ interface DashboardProps {
   onNavigateToAdmissions?: () => void;
   onNavigateToFollowups: () => void;
   onOpenAddLead: () => void;
+  onOpenWhatsApp?: (lead: Lead) => void;
+  onOpenEmail?: (lead: Lead) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -46,6 +48,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onNavigateToAdmissions,
   onNavigateToFollowups,
   onOpenAddLead,
+  onOpenWhatsApp,
+  onOpenEmail,
 }) => {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -383,15 +387,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           </a>
 
                           {/* WhatsApp Button */}
-                          <a
-                            href={createWhatsAppLink(lead.phone, defaultWaText)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="bg-slate-800 hover:bg-teal-900 text-teal-400 p-2 rounded border border-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-all"
+                          <button
+                            type="button"
+                            onClick={() => onOpenWhatsApp?.(lead)}
+                            title="Send WhatsApp Message"
+                            className="bg-slate-800 hover:bg-teal-900 text-teal-400 p-2 rounded border border-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-all cursor-pointer"
                           >
                             <MessageCircle className="w-3.5 h-3.5" />
                             <span>WhatsApp</span>
-                          </a>
+                          </button>
+
+                          {/* Email Button */}
+                          <button
+                            type="button"
+                            onClick={() => onOpenEmail?.(lead)}
+                            title="Send Email"
+                            className="bg-slate-800 hover:bg-blue-900 text-blue-400 p-2 rounded border border-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-all cursor-pointer"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Email</span>
+                          </button>
                         </div>
                       </td>
                     </tr>

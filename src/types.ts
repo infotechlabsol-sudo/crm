@@ -75,6 +75,21 @@ export interface BatchItem {
   created_timestamp?: string;
 }
 
+export interface WhatsAppTemplate {
+  id: string;
+  name: string; // short label e.g., "Fee Reminder", "Batch Update"
+  message: string; // template text with placeholders
+  created_timestamp?: string;
+}
+
+export interface EmailTemplate {
+  id: string;
+  name: string; // short label e.g., "Batch Update"
+  subject: string; // email subject line with placeholders
+  message: string; // email body HTML with rich-text formatting
+  created_timestamp?: string;
+}
+
 export interface CRMSettings {
   courses: string[];
   sources: string[];
@@ -100,3 +115,35 @@ export interface LeadFilterState {
 
 export type SortField = 'created_date' | 'next_followup_date' | 'status' | 'name' | 'lead_score';
 export type SortOrder = 'asc' | 'desc';
+
+export type FormFieldType =
+  | 'text'
+  | 'phone'
+  | 'email'
+  | 'dropdown'
+  | 'radio'
+  | 'checkbox'
+  | 'textarea'
+  | 'date';
+
+export interface FormFieldDefinition {
+  field_id: string; // short unique key, e.g. "name", "phone", "course_interest", "class_mode"
+  label: string; // label shown to user, e.g. "Full Name"
+  field_type: FormFieldType;
+  required: boolean;
+  options?: string[]; // array of strings for dropdown or radio
+  placeholder?: string;
+  helper_text?: string;
+}
+
+export interface CustomForm {
+  id: string;
+  form_name: string; // internal reference e.g., "Demo Class Signup"
+  form_title: string; // heading on public page, e.g., "Book Your Free Demo Class"
+  form_description?: string; // subtitle or instructions
+  fields: FormFieldDefinition[];
+  active: boolean; // default true
+  created_timestamp: string; // ISO string
+  submission_count: number; // default 0
+}
+

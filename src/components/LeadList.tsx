@@ -11,6 +11,7 @@ import {
   Search,
   PhoneCall,
   MessageCircle,
+  Mail,
   Clock,
   CheckSquare,
   Square,
@@ -26,7 +27,6 @@ import {
   formatRelativeDate,
   getStatusBadgeClass,
   getScoreBadgeClass,
-  createWhatsAppLink,
   createTelLink,
   getFollowUpCategory,
 } from '../lib/utils';
@@ -48,6 +48,8 @@ interface LeadListProps {
   onTriggerSheetSync?: () => void;
   isSheetSyncing?: boolean;
   sheetsConfigured?: boolean;
+  onOpenWhatsApp?: (lead: Lead) => void;
+  onOpenEmail?: (lead: Lead) => void;
 }
 
 export const LeadList: React.FC<LeadListProps> = ({
@@ -67,6 +69,8 @@ export const LeadList: React.FC<LeadListProps> = ({
   onTriggerSheetSync,
   isSheetSyncing = false,
   sheetsConfigured = false,
+  onOpenWhatsApp,
+  onOpenEmail,
 }) => {
   // Filter state
   const [filterState, setFilterState] = useState<LeadFilterState>({
@@ -657,28 +661,38 @@ export const LeadList: React.FC<LeadListProps> = ({
                 )}
 
                 {/* Card Quick Actions */}
-                <div className="flex items-center justify-between gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
                   <a
                     href={createTelLink(lead.phone)}
-                    className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5 transition-all"
+                    className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 flex items-center justify-center gap-1 transition-all"
                   >
                     <PhoneCall className="w-3.5 h-3.5 text-teal-400" />
                     <span>Call</span>
                   </a>
 
-                  <a
-                    href={createWhatsAppLink(lead.phone, defaultWaText)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 py-2 bg-slate-800 hover:bg-teal-900 text-teal-300 text-xs font-semibold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5 transition-all"
+                  <button
+                    type="button"
+                    onClick={() => onOpenWhatsApp?.(lead)}
+                    className="flex-1 py-2 bg-slate-800 hover:bg-teal-900 text-teal-300 text-xs font-semibold rounded-lg border border-slate-700 flex items-center justify-center gap-1 transition-all cursor-pointer"
+                    title="Send WhatsApp Message"
                   >
                     <MessageCircle className="w-3.5 h-3.5 text-teal-400" />
                     <span>WhatsApp</span>
-                  </a>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onOpenEmail?.(lead)}
+                    className="flex-1 py-2 bg-slate-800 hover:bg-blue-900 text-blue-300 text-xs font-semibold rounded-lg border border-slate-700 flex items-center justify-center gap-1 transition-all cursor-pointer"
+                    title="Send Email"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Email</span>
+                  </button>
 
                   <button
                     onClick={() => onSelectLead(lead)}
-                    className="px-3 py-2 bg-teal-950/80 hover:bg-teal-900 text-teal-400 text-xs font-semibold rounded-lg border border-teal-800/80 transition-all cursor-pointer"
+                    className="px-2.5 py-2 bg-teal-950/80 hover:bg-teal-900 text-teal-400 text-xs font-semibold rounded-lg border border-teal-800/80 transition-all cursor-pointer"
                   >
                     Details
                   </button>
@@ -893,15 +907,24 @@ export const LeadList: React.FC<LeadListProps> = ({
                           </a>
 
                           {/* WhatsApp Button */}
-                          <a
-                            href={createWhatsAppLink(lead.phone, defaultWaText)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="WhatsApp"
-                            className="bg-slate-800 hover:bg-teal-900 text-teal-400 p-1.5 rounded border border-slate-700 transition-all inline-flex"
+                          <button
+                            type="button"
+                            onClick={() => onOpenWhatsApp?.(lead)}
+                            title="Send WhatsApp Message"
+                            className="bg-slate-800 hover:bg-teal-900 text-teal-400 p-1.5 rounded border border-slate-700 transition-all inline-flex cursor-pointer"
                           >
                             <MessageCircle className="w-3.5 h-3.5" />
-                          </a>
+                          </button>
+
+                          {/* Email Button */}
+                          <button
+                            type="button"
+                            onClick={() => onOpenEmail?.(lead)}
+                            title="Send Email"
+                            className="bg-slate-800 hover:bg-blue-900 text-blue-400 p-1.5 rounded border border-slate-700 transition-all inline-flex cursor-pointer"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>

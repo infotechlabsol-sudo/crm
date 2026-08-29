@@ -1,13 +1,19 @@
-import React, { useState } from 'react';
-import { CRMSettings, CourseItem, BatchItem } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  CRMSettings,
+  CourseItem,
+  BatchItem,
+  WhatsAppTemplate,
+  EmailTemplate,
+} from '../types';
 import {
   Settings,
   Plus,
   Trash2,
   Save,
   Download,
-  RefreshCw,
   MessageSquare,
+  Mail,
   BookOpen,
   Layers,
   Sparkles,
@@ -15,6 +21,18 @@ import {
   Check,
   X,
   AlertTriangle,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  List,
+  ListOrdered,
+  Link as LinkIcon,
+  Eraser,
+  Palette,
+  Highlighter,
+  Info,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   addCourse,
@@ -25,29 +43,55 @@ import {
   updateBatch,
   deactivateBatch,
   reactivateBatch,
+  addWhatsAppTemplate,
+  updateWhatsAppTemplate,
+  deleteWhatsAppTemplate,
+  addEmailTemplate,
+  updateEmailTemplate,
+  deleteEmailTemplate,
+  subscribeToWhatsAppTemplates,
+  subscribeToEmailTemplates,
+  DEFAULT_WHATSAPP_TEMPLATES,
+  DEFAULT_EMAIL_TEMPLATES,
 } from '../lib/storage';
 
 interface SettingsViewProps {
   settings: CRMSettings;
   coursesList?: CourseItem[];
   batchesList?: BatchItem[];
+  whatsAppTemplates?: WhatsAppTemplate[];
+  emailTemplates?: EmailTemplate[];
   onSaveSettings: (newSettings: CRMSettings) => void;
   onExportAllCSV: () => void;
   onExportJSON: () => void;
   onClearAllData: () => void;
 }
 
+const AVAILABLE_PLACEHOLDERS = [
+  { tag: '{{name}}', label: 'Student Name' },
+  { tag: '{{course_interest}}', label: 'Course' },
+  { tag: '{{batch}}', label: 'Batch Name' },
+  { tag: '{{phone}}', label: 'Phone Number' },
+  { tag: '{{email}}', label: 'Email' },
+  { tag: '{{registration_number}}', label: 'Reg No.' },
+  { tag: '{{remaining_fees}}', label: 'Remaining Fees' },
+  { tag: '{{source}}', label: 'Lead Source' },
+  { tag: '{{address}}', label: 'Address' },
+  { tag: '{{class_mode}}', label: 'Class Mode' },
+];
+
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   coursesList = [],
   batchesList = [],
+  whatsAppTemplates: initialWhatsAppTemplates,
+  emailTemplates: initialEmailTemplates,
   onSaveSettings,
   onExportAllCSV,
   onExportJSON,
   onClearAllData,
 }) => {
   const [sources, setSources] = useState<string[]>(settings.sources);
-  const [templates, setTemplates] = useState(settings.whatsappTemplates);
 
   // New item inputs
   const [newCourse, setNewCourse] = useState('');
@@ -64,9 +108,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [editingBatchName, setEditingBatchName] = useState('');
   const [showInactiveBatches, setShowInactiveBatches] = useState(false);
 
-  // New Template state
-  const [newTplTitle, setNewTplTitle] = useState('');
-  const [newTplMsg, setNewTplMsg] = useState('');
+  // WhatsApp Templates state
+  const [waTemplatesList, setWaTemplatesList] = useState<WhatsAppTemplate[]>(
+    initialWhatsAppTemplates || DEFAULT_WHATSAPP_TEMPLATES
+  );
+  const [isAddingWaTemplate, setIsAddingWaTemplate] = useState(false);
+  const [editingWaId, setEditingWaId] = useState<string | null>(null);
+  const [waNameInput, setWaNameInput] = useState('');
+  const [waMessageInput, setWaMessageInput] = useState('');
+  const [waActionStatus, setWaActionStatus] = useState<string | null>(null);
+  const waTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Email Templates state
+  const [emailTemplatesList, setEmailTemplatesList] = useState<EmailTemplate[]>(
+    initialEmailTemplates || DEFAULT_EMAIL_TEMPLATES
+  );
+  const [isAddingEmailTemplate, setIsAddingEmailTemplate] = useState(false);
+  const [editingEmailId, setEditingEmailId] = useState<string | null>(null);
+  const [emailNameInput, setEmailNameInput] = useState('');
+  const [emailSubjectInput, setEmailSubjectInput] = useState('');
+  const [emailActionStatus, setEmailActionStatus] = useState<string | null>(null);
+  const emailEditorRef = useRef<HTMLDivElement>(null);
+  const emailColorPickerRef = useRef<HTMLInputElement>(null);
+  const emailHighlightPickerRef = useRef<HTMLInputElement>(null);
 
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -74,6 +138,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [showConfirmDeleteModal, setShowConfirmDeleteModal] = useState(false);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
   const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
+
+  // Subscribe to real-time templates from Firestore
+  useEffect(() => {
+    const unsubWa = subscribeToWhatsAppTemplates((templates) => {
+      if (templates && templates.length > 0) {
+        setWaTemplatesList(templates);
+      }
+    });
+
+    const unsubEm = subscribeToEmailTemplates((templates) => {
+      if (templates && templates.length > 0) {
+        setEmailTemplatesList(templates);
+      }
+    });
+
+    return () => {
+      unsubWa();
+      unsubEm();
+    };
+  }, []);
 
   const handleFinalDeleteLeads = () => {
     if (deleteConfirmInput !== 'DELETE') return;
@@ -154,21 +238,166 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setSources(sources.filter((s) => s !== src));
   };
 
-  // Template actions
-  const handleAddTemplate = () => {
-    if (!newTplTitle.trim() || !newTplMsg.trim()) return;
-    const newTpl = {
-      id: 'tpl_' + Date.now(),
-      title: newTplTitle.trim(),
-      message: newTplMsg.trim(),
-    };
-    setTemplates([...templates, newTpl]);
-    setNewTplTitle('');
-    setNewTplMsg('');
+  // ================= WhatsApp Templates Management =================
+  const handleStartAddWaTemplate = () => {
+    setEditingWaId(null);
+    setWaNameInput('');
+    setWaMessageInput('');
+    setIsAddingWaTemplate(true);
   };
 
-  const handleRemoveTemplate = (id: string) => {
-    setTemplates(templates.filter((t) => t.id !== id));
+  const handleStartEditWaTemplate = (template: WhatsAppTemplate) => {
+    setEditingWaId(template.id);
+    setWaNameInput(template.name);
+    setWaMessageInput(template.message);
+    setIsAddingWaTemplate(true);
+  };
+
+  const handleCancelWaTemplate = () => {
+    setEditingWaId(null);
+    setWaNameInput('');
+    setWaMessageInput('');
+    setIsAddingWaTemplate(false);
+  };
+
+  const handleInsertWaPlaceholder = (tag: string) => {
+    if (waTextareaRef.current) {
+      const textarea = waTextareaRef.current;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const prev = waMessageInput;
+      const next = prev.substring(0, start) + tag + prev.substring(end);
+      setWaMessageInput(next);
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(start + tag.length, start + tag.length);
+      }, 50);
+    } else {
+      setWaMessageInput((prev) => prev + tag);
+    }
+  };
+
+  const handleSaveWaTemplate = async () => {
+    if (!waNameInput.trim() || !waMessageInput.trim()) return;
+
+    if (editingWaId) {
+      await updateWhatsAppTemplate(editingWaId, waNameInput.trim(), waMessageInput.trim());
+      setWaActionStatus('WhatsApp template updated!');
+    } else {
+      await addWhatsAppTemplate(waNameInput.trim(), waMessageInput.trim());
+      setWaActionStatus('New WhatsApp template created!');
+    }
+
+    handleCancelWaTemplate();
+    setTimeout(() => setWaActionStatus(null), 3000);
+  };
+
+  const handleDeleteWaTemplate = async (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete template "${name}"?`)) {
+      await deleteWhatsAppTemplate(id);
+      setWaActionStatus(`Template "${name}" deleted.`);
+      setTimeout(() => setWaActionStatus(null), 3000);
+    }
+  };
+
+  // ================= Email Templates Management =================
+  const handleStartAddEmailTemplate = () => {
+    setEditingEmailId(null);
+    setEmailNameInput('');
+    setEmailSubjectInput('');
+    setIsAddingEmailTemplate(true);
+    setTimeout(() => {
+      if (emailEditorRef.current) {
+        emailEditorRef.current.innerHTML =
+          '<p>Hi <strong>{{name}}</strong>,</p><p><br></p><p>We are excited to share details about <strong>{{course_interest}}</strong>.</p><p><br></p><p>Warm regards,<br><strong>Team Tech Lab Academy</strong></p>';
+      }
+    }, 50);
+  };
+
+  const handleStartEditEmailTemplate = (template: EmailTemplate) => {
+    setEditingEmailId(template.id);
+    setEmailNameInput(template.name);
+    setEmailSubjectInput(template.subject);
+    setIsAddingEmailTemplate(true);
+    setTimeout(() => {
+      if (emailEditorRef.current) {
+        emailEditorRef.current.innerHTML = template.message;
+      }
+    }, 50);
+  };
+
+  const handleCancelEmailTemplate = () => {
+    setEditingEmailId(null);
+    setEmailNameInput('');
+    setEmailSubjectInput('');
+    if (emailEditorRef.current) {
+      emailEditorRef.current.innerHTML = '';
+    }
+    setIsAddingEmailTemplate(false);
+  };
+
+  const executeEmailCommand = (command: string, value: string | undefined = undefined) => {
+    if (emailEditorRef.current) {
+      emailEditorRef.current.focus();
+      document.execCommand(command, false, value);
+    }
+  };
+
+  const handleEmailParagraphStyle = (tag: string) => {
+    if (emailEditorRef.current) {
+      emailEditorRef.current.focus();
+      document.execCommand('formatBlock', false, tag);
+    }
+  };
+
+  const handleInsertEmailLink = () => {
+    const url = prompt('Enter the link destination URL (e.g. https://example.com):');
+    if (url) {
+      executeEmailCommand('createLink', url);
+    }
+  };
+
+  const handleInsertEmailPlaceholder = (tag: string) => {
+    if (emailEditorRef.current) {
+      emailEditorRef.current.focus();
+      document.execCommand('insertText', false, tag);
+    }
+  };
+
+  const handleSaveEmailTemplate = async () => {
+    const htmlBody = emailEditorRef.current ? emailEditorRef.current.innerHTML.trim() : '';
+    if (!emailNameInput.trim() || !emailSubjectInput.trim() || !htmlBody) {
+      alert('Please provide a Template Name, Subject, and Message Body.');
+      return;
+    }
+
+    if (editingEmailId) {
+      await updateEmailTemplate(
+        editingEmailId,
+        emailNameInput.trim(),
+        emailSubjectInput.trim(),
+        htmlBody
+      );
+      setEmailActionStatus('Email template updated successfully!');
+    } else {
+      await addEmailTemplate(
+        emailNameInput.trim(),
+        emailSubjectInput.trim(),
+        htmlBody
+      );
+      setEmailActionStatus('New Email template created successfully!');
+    }
+
+    handleCancelEmailTemplate();
+    setTimeout(() => setEmailActionStatus(null), 3000);
+  };
+
+  const handleDeleteEmailTemplate = async (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete email template "${name}"?`)) {
+      await deleteEmailTemplate(id);
+      setEmailActionStatus(`Email template "${name}" deleted.`);
+      setTimeout(() => setEmailActionStatus(null), 3000);
+    }
   };
 
   const handleSaveAllSettings = () => {
@@ -176,7 +405,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       courses: coursesList.filter((c) => c.active).map((c) => c.name),
       sources,
       batches: batchesList.filter((b) => b.active).map((b) => b.name),
-      whatsappTemplates: templates,
+      whatsappTemplates: waTemplatesList.map((t) => ({
+        id: t.id,
+        title: t.name,
+        message: t.message,
+      })),
     };
     onSaveSettings(updated);
     setSavedSuccess(true);
@@ -190,7 +423,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const inactiveBatches = batchesList.filter((b) => !b.active);
 
   return (
-    <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 max-w-5xl mx-auto text-xs">
+    <div className="p-4 sm:p-8 space-y-6 max-w-5xl mx-auto text-xs">
       {/* Header */}
       <div className="glass p-4 sm:p-5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
@@ -199,7 +432,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span>CRM System Settings & Config</span>
           </h2>
           <p className="text-slate-400 mt-1">
-            Customize course interests, lead sources, batch lists, and WhatsApp message templates.
+            Customize courses, lead sources, batch lists, WhatsApp templates, and rich-text Email templates.
           </p>
         </div>
 
@@ -305,15 +538,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => handleStartEditCourse(c)}
-                      className="text-slate-400 hover:text-teal-400 transition-colors p-1"
+                      className="text-slate-400 hover:text-teal-400 transition-colors p-1 cursor-pointer"
                       title="Edit Course Name"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => handleRemoveCourse(c.id)}
-                      className="text-slate-500 hover:text-rose-400 transition-colors p-1"
-                      title="Deactivate Course (Soft Delete)"
+                      className="text-slate-500 hover:text-rose-400 transition-colors p-1 cursor-pointer"
+                      title="Deactivate Course"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -480,7 +713,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <button
                       onClick={() => handleRemoveBatch(b.id)}
                       className="text-slate-500 hover:text-rose-400 transition-colors p-1 cursor-pointer"
-                      title="Deactivate Batch (Soft Delete)"
+                      title="Deactivate Batch"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -524,62 +757,474 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* WhatsApp Templates Section */}
+      {/* ================= WhatsApp Templates Section ================= */}
       <div className="glass p-5 rounded-xl space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <div className="flex items-center gap-2 font-bold text-slate-100">
-            <MessageSquare className="w-4 h-4 text-teal-400" />
-            <span>WhatsApp Message Templates</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-950/80 border border-emerald-800 flex items-center justify-center text-emerald-400 shrink-0">
+              <MessageSquare className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-slate-100 flex items-center gap-2">
+                <span>WhatsApp Templates</span>
+                <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-950/80 border border-emerald-800 px-1.5 py-0.5 rounded">
+                  whatsapp_templates
+                </span>
+              </div>
+              <p className="text-slate-400 text-[11px]">
+                Pre-formatted messages for one-click and bulk WhatsApp messaging with dynamic lead placeholders.
+              </p>
+            </div>
           </div>
-          <span className="text-slate-500 text-[11px]">Use placeholders: {'{name}'}, {'{course}'}, {'{batch}'}</span>
+
+          <button
+            onClick={() => (isAddingWaTemplate ? handleCancelWaTemplate() : handleStartAddWaTemplate())}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-3 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer self-start sm:self-auto shrink-0 shadow-sm"
+          >
+            {isAddingWaTemplate ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+            <span>{isAddingWaTemplate ? 'Cancel' : 'Add New Template'}</span>
+          </button>
         </div>
 
-        {/* Existing Templates */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {templates.map((tpl) => (
-            <div key={tpl.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-200">{tpl.title}</span>
+        {waActionStatus && (
+          <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-300 p-2.5 rounded-lg flex items-center gap-2 text-xs">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{waActionStatus}</span>
+          </div>
+        )}
+
+        {/* WhatsApp Add / Edit Form */}
+        {isAddingWaTemplate && (
+          <div className="bg-slate-950/90 p-4 rounded-xl border border-emerald-800/80 space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-200 flex items-center gap-2">
+                <Edit2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{editingWaId ? 'Edit WhatsApp Template' : 'Create New WhatsApp Template'}</span>
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Template Name <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={waNameInput}
+                  onChange={(e) => setWaNameInput(e.target.value)}
+                  placeholder="e.g. Fee Reminder / Demo Class Invite"
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-300 font-semibold">
+                    Message Body <span className="text-rose-400">*</span>
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    {waMessageInput.length} chars
+                  </span>
+                </div>
+                <textarea
+                  ref={waTextareaRef}
+                  rows={4}
+                  value={waMessageInput}
+                  onChange={(e) => setWaMessageInput(e.target.value)}
+                  placeholder="Type message text... (e.g. Hi {{name}}! Your inquiry for {{course_interest}} is confirmed.)"
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 text-slate-100 placeholder-slate-500 rounded-lg p-3 text-xs leading-relaxed focus:outline-none font-mono"
+                />
+              </div>
+
+              {/* Placeholders Quick Chips */}
+              <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
+                <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Click to insert placeholder:</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVAILABLE_PLACEHOLDERS.map((ph) => (
+                    <button
+                      key={ph.tag}
+                      type="button"
+                      onClick={() => handleInsertWaPlaceholder(ph.tag)}
+                      className="bg-slate-800 hover:bg-emerald-950 text-slate-300 hover:text-emerald-300 border border-slate-700 hover:border-emerald-700 px-2 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer"
+                      title={ph.label}
+                    >
+                      {ph.tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
                 <button
-                  onClick={() => handleRemoveTemplate(tpl.id)}
-                  className="text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
+                  type="button"
+                  onClick={handleCancelWaTemplate}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveWaTemplate}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{editingWaId ? 'Update Template' : 'Save Template'}</span>
                 </button>
               </div>
-              <p className="text-[11px] text-slate-400 font-mono bg-slate-900/80 p-2 rounded border border-slate-800">
-                {tpl.message}
-              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Existing WhatsApp Templates List */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {waTemplatesList.map((tpl) => (
+            <div
+              key={tpl.id}
+              className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 hover:border-slate-700 space-y-2.5 transition-colors flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-bold text-slate-100 text-xs truncate">{tpl.name}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => handleStartEditWaTemplate(tpl)}
+                      className="text-slate-400 hover:text-emerald-400 p-1 transition-colors cursor-pointer"
+                      title="Edit template"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteWaTemplate(tpl.id, tpl.name)}
+                      className="text-slate-500 hover:text-rose-400 p-1 transition-colors cursor-pointer"
+                      title="Delete template"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-400 font-mono bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 mt-2 line-clamp-3 whitespace-pre-wrap">
+                  {tpl.message}
+                </p>
+              </div>
             </div>
           ))}
         </div>
+      </div>
 
-        {/* Add New Template Form */}
-        <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 space-y-3">
-          <div className="font-bold text-slate-300">Add New WhatsApp Template</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <input
-              type="text"
-              value={newTplTitle}
-              onChange={(e) => setNewTplTitle(e.target.value)}
-              placeholder="Template Title (e.g. Fees Offer)"
-              className="bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2"
-            />
-            <input
-              type="text"
-              value={newTplMsg}
-              onChange={(e) => setNewTplMsg(e.target.value)}
-              placeholder="Hi {name}! Special 20% discount on {course}..."
-              className="sm:col-span-2 bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2 font-mono"
-            />
+      {/* ================= Email Templates Section ================= */}
+      <div className="glass p-5 rounded-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-blue-950/80 border border-blue-800 flex items-center justify-center text-blue-400 shrink-0">
+              <Mail className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-slate-100 flex items-center gap-2">
+                <span>Email Templates</span>
+                <span className="text-[10px] text-blue-400 font-semibold bg-blue-950/80 border border-blue-800 px-1.5 py-0.5 rounded">
+                  email_templates
+                </span>
+              </div>
+              <p className="text-slate-400 text-[11px]">
+                Rich HTML templates with formatting toolbar and dynamic placeholders for standard emails and course announcements.
+              </p>
+            </div>
           </div>
+
           <button
-            onClick={handleAddTemplate}
-            className="bg-teal-950 hover:bg-teal-900 text-teal-400 border border-teal-800 font-bold px-4 py-2 rounded-lg flex items-center gap-1 cursor-pointer"
+            onClick={() => (isAddingEmailTemplate ? handleCancelEmailTemplate() : handleStartAddEmailTemplate())}
+            className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-3 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer self-start sm:self-auto shrink-0 shadow-sm"
           >
-            <Plus className="w-4 h-4" />
-            <span>Save New Template</span>
+            {isAddingEmailTemplate ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+            <span>{isAddingEmailTemplate ? 'Cancel' : 'Add New Template'}</span>
           </button>
+        </div>
+
+        {emailActionStatus && (
+          <div className="bg-blue-950/60 border border-blue-800 text-blue-300 p-2.5 rounded-lg flex items-center gap-2 text-xs">
+            <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+            <span>{emailActionStatus}</span>
+          </div>
+        )}
+
+        {/* Email Add / Edit Form */}
+        {isAddingEmailTemplate && (
+          <div className="bg-slate-950/90 p-4 rounded-xl border border-blue-800/80 space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-200 flex items-center gap-2">
+                <Edit2 className="w-3.5 h-3.5 text-blue-400" />
+                <span>{editingEmailId ? 'Edit Email Template' : 'Create New Email Template'}</span>
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Template Name <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={emailNameInput}
+                    onChange={(e) => setEmailNameInput(e.target.value)}
+                    placeholder="e.g. Batch Details & Curriculum"
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Email Subject <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={emailSubjectInput}
+                    onChange={(e) => setEmailSubjectInput(e.target.value)}
+                    placeholder="e.g. Learn {{course_interest}} at Tech Lab Academy"
+                    className="w-full bg-slate-900 border border-slate-700 focus:border-blue-500 text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Rich-Text Message Editor */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Message Body (HTML) <span className="text-rose-400">*</span>
+                </label>
+
+                {/* Formatting Toolbar */}
+                <div className="bg-slate-900 border border-slate-700 rounded-t-xl p-1.5 flex flex-wrap items-center gap-1 border-b-0 text-slate-300">
+                  {/* Paragraph style */}
+                  <select
+                    onChange={(e) => handleEmailParagraphStyle(e.target.value)}
+                    defaultValue="p"
+                    className="bg-slate-950 border border-slate-800 text-slate-300 rounded px-2 py-1 text-[11px] font-medium focus:outline-none cursor-pointer"
+                    title="Text Style"
+                  >
+                    <option value="p">Normal</option>
+                    <option value="h1">Heading 1</option>
+                    <option value="h2">Heading 2</option>
+                    <option value="h3">Heading 3</option>
+                  </select>
+
+                  <div className="h-4 w-[1px] bg-slate-800 mx-1" />
+
+                  {/* Bold */}
+                  <button
+                    type="button"
+                    onClick={() => executeEmailCommand('bold')}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Bold"
+                  >
+                    <Bold className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Italic */}
+                  <button
+                    type="button"
+                    onClick={() => executeEmailCommand('italic')}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Italic"
+                  >
+                    <Italic className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Underline */}
+                  <button
+                    type="button"
+                    onClick={() => executeEmailCommand('underline')}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Underline"
+                  >
+                    <Underline className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Strikethrough */}
+                  <button
+                    type="button"
+                    onClick={() => executeEmailCommand('strikeThrough')}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Strikethrough"
+                  >
+                    <Strikethrough className="w-3.5 h-3.5" />
+                  </button>
+
+                  <div className="h-4 w-[1px] bg-slate-800 mx-1" />
+
+                  {/* Bullet list */}
+                  <button
+                    type="button"
+                    onClick={() => executeEmailCommand('insertUnorderedList')}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Bullet List"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Numbered list */}
+                  <button
+                    type="button"
+                    onClick={() => executeEmailCommand('insertOrderedList')}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Numbered List"
+                  >
+                    <ListOrdered className="w-3.5 h-3.5" />
+                  </button>
+
+                  <div className="h-4 w-[1px] bg-slate-800 mx-1" />
+
+                  {/* Link */}
+                  <button
+                    type="button"
+                    onClick={handleInsertEmailLink}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    title="Insert Link"
+                  >
+                    <LinkIcon className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Text Color */}
+                  <div className="relative flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => emailColorPickerRef.current?.click()}
+                      className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                      title="Text Color"
+                    >
+                      <Palette className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      ref={emailColorPickerRef}
+                      type="color"
+                      defaultValue="#38bdf8"
+                      onChange={(e) => executeEmailCommand('foreColor', e.target.value)}
+                      className="sr-only"
+                    />
+                  </div>
+
+                  {/* Highlight Color */}
+                  <div className="relative flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => emailHighlightPickerRef.current?.click()}
+                      className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                      title="Highlight Color"
+                    >
+                      <Highlighter className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      ref={emailHighlightPickerRef}
+                      type="color"
+                      defaultValue="#fef08a"
+                      onChange={(e) => executeEmailCommand('hiliteColor', e.target.value)}
+                      className="sr-only"
+                    />
+                  </div>
+
+                  {/* Clear formatting */}
+                  <button
+                    type="button"
+                    onClick={() => executeEmailCommand('removeFormat')}
+                    className="p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer ml-auto"
+                    title="Clear Formatting"
+                  >
+                    <Eraser className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Editable Area */}
+                <div
+                  ref={emailEditorRef}
+                  contentEditable
+                  className="w-full bg-slate-950 border border-slate-700 rounded-b-xl p-3 min-h-[140px] max-h-[260px] overflow-y-auto text-xs text-slate-100 focus:outline-none focus:border-blue-500 font-sans leading-relaxed rich-text-area"
+                />
+              </div>
+
+              {/* Placeholders Quick Chips */}
+              <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
+                <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Click to insert placeholder at cursor:</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVAILABLE_PLACEHOLDERS.map((ph) => (
+                    <button
+                      key={ph.tag}
+                      type="button"
+                      onClick={() => handleInsertEmailPlaceholder(ph.tag)}
+                      className="bg-slate-800 hover:bg-blue-950 text-slate-300 hover:text-blue-300 border border-slate-700 hover:border-blue-700 px-2 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer"
+                      title={ph.label}
+                    >
+                      {ph.tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCancelEmailTemplate}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEmailTemplate}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{editingEmailId ? 'Update Email Template' : 'Save Email Template'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Existing Email Templates List */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {emailTemplatesList.map((tpl) => (
+            <div
+              key={tpl.id}
+              className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 hover:border-slate-700 space-y-2.5 transition-colors flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-bold text-slate-100 text-xs truncate block">{tpl.name}</span>
+                    <span className="text-[11px] text-blue-400 font-medium truncate block mt-0.5">
+                      Subject: {tpl.subject}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => handleStartEditEmailTemplate(tpl)}
+                      className="text-slate-400 hover:text-blue-400 p-1 transition-colors cursor-pointer"
+                      title="Edit template"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteEmailTemplate(tpl.id, tpl.name)}
+                      className="text-slate-500 hover:text-rose-400 p-1 transition-colors cursor-pointer"
+                      title="Delete template"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  className="text-[11px] text-slate-400 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 mt-2 line-clamp-3 prose prose-invert max-w-none text-xs"
+                  dangerouslySetInnerHTML={{ __html: tpl.message }}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -707,4 +1352,3 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     </div>
   );
 };
-

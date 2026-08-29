@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Search,
   Plus,
@@ -10,6 +10,9 @@ import {
   Moon,
   Menu,
 } from 'lucide-react';
+import { Lead } from '../types';
+import { NotificationDropdown } from './NotificationDropdown';
+import { playNotificationChime } from '../lib/utils';
 
 interface HeaderProps {
   title: string;
@@ -25,6 +28,10 @@ interface HeaderProps {
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
   onOpenMobileSidebar?: () => void;
+  leads?: Lead[];
+  onSelectLead?: (lead: Lead) => void;
+  onMarkFollowUpDone?: (leadId: string) => void;
+  onNavigateToFollowups?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -41,9 +48,25 @@ export const Header: React.FC<HeaderProps> = ({
   theme = 'dark',
   onToggleTheme,
   onOpenMobileSidebar,
+  leads = [],
+  onSelectLead,
+  onMarkFollowUpDone,
+  onNavigateToFollowups,
 }) => {
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+
+  const totalPendingNotifications = overdueCount + dueTodayCount;
+
+  const handleToggleNotifications = () => {
+    const nextState = !isNotificationOpen;
+    if (nextState) {
+      playNotificationChime();
+    }
+    setIsNotificationOpen(nextState);
+  };
+
   return (
-    <header className="h-16 flex items-center justify-between px-4 sm:px-8 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-10 gap-2">
+    <header className="h-16 flex items-center justify-between px-4 sm:px-8 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-20 gap-2">
       {/* Title & Mobile Hamburger */}
       <div className="flex items-center gap-2.5 min-w-0">
         {onOpenMobileSidebar && (
@@ -91,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right Quick Action Buttons */}
-      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
         {onToggleTheme && (
           <button
             onClick={onToggleTheme}
@@ -113,6 +136,51 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <RefreshCw className="w-4 h-4" />
         </button>
+
+        {/* Notification Bell with Action Center Dropdown */}
+        <div className="relative">
+          <button
+            id="notification-bell-btn"
+            onClick={handleToggleNotifications}
+            title={
+              totalPendingNotifications > 0
+                ? `${totalPendingNotifications} pending reminder${totalPendingNotifications > 1 ? 's' : ''}`
+                : 'Action Center & Notifications'
+            }
+            className={`p-1.5 sm:p-2 rounded-lg transition-all border relative cursor-pointer ${
+              isNotificationOpen
+                ? 'bg-teal-950/80 text-teal-400 border-teal-800 shadow-md shadow-teal-950/40'
+                : totalPendingNotifications > 0
+                ? 'text-slate-200 hover:text-white hover:bg-slate-800 border-slate-700/80 bg-slate-850'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 border-transparent hover:border-slate-700'
+            }`}
+          >
+            <Bell className={`w-4 h-4 ${overdueCount > 0 ? 'text-rose-400 animate-pulse' : ''}`} />
+            {totalPendingNotifications > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 bg-rose-500 text-white font-bold text-[10px] leading-tight rounded-full flex items-center justify-center shadow-lg shadow-rose-950/50 border border-slate-900 animate-in fade-in zoom-in-75 duration-150">
+                {totalPendingNotifications > 99 ? '99+' : totalPendingNotifications}
+              </span>
+            )}
+          </button>
+
+          {/* Anchored Dropdown Panel */}
+          <NotificationDropdown
+            leads={leads}
+            isOpen={isNotificationOpen}
+            onClose={() => setIsNotificationOpen(false)}
+            onSelectLead={(lead) => {
+              onSelectLead?.(lead);
+              setIsNotificationOpen(false);
+            }}
+            onMarkDone={(leadId) => {
+              onMarkFollowUpDone?.(leadId);
+            }}
+            onNavigateToFollowups={() => {
+              onNavigateToFollowups?.();
+              setIsNotificationOpen(false);
+            }}
+          />
+        </div>
 
         <button
           onClick={onExportCSV}
@@ -143,3 +211,4 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+

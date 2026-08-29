@@ -13,9 +13,18 @@ import {
   GraduationCap,
   X,
   Menu,
+  Share2,
 } from 'lucide-react';
 
-export type NavView = 'dashboard' | 'leads' | 'admissions' | 'followups' | 'import' | 'settings' | 'lost';
+export type NavView =
+  | 'dashboard'
+  | 'leads'
+  | 'admissions'
+  | 'forms'
+  | 'followups'
+  | 'import'
+  | 'settings'
+  | 'lost';
 
 interface SidebarProps {
   currentView: NavView;
@@ -24,6 +33,7 @@ interface SidebarProps {
   overdueCount: number;
   dueTodayCount: number;
   newSheetLeadsCount?: number;
+  formsCount?: number;
   onLogout?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
@@ -37,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   overdueCount,
   dueTodayCount,
   newSheetLeadsCount = 0,
+  formsCount = 0,
   onLogout,
   isMobileOpen = false,
   onCloseMobile,
@@ -63,6 +74,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'admissions' as NavView,
       label: 'Admissions',
       icon: GraduationCap,
+    },
+    {
+      id: 'forms' as NavView,
+      label: 'Sharable Forms',
+      icon: Share2,
+      badge: formsCount > 0 ? `${formsCount}` : undefined,
+      badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
     },
     {
       id: 'lost' as NavView,

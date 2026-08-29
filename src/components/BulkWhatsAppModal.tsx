@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
-import { Lead, CRMSettings } from '../types';
+import { Lead, CRMSettings, WhatsAppTemplate } from '../types';
 import {
   MessageSquare,
   X,
   ExternalLink,
   Send,
 } from 'lucide-react';
-import { createWhatsAppLink } from '../lib/utils';
+import { createWhatsAppLink, replaceLeadPlaceholders } from '../lib/utils';
+import { getWhatsAppTemplates } from '../lib/storage';
 
 interface BulkWhatsAppModalProps {
   selectedLeads: Lead[];
   settings: CRMSettings;
+  whatsAppTemplates?: WhatsAppTemplate[];
   onClose: () => void;
   onAddBulkNote: (leadIds: string[], noteText: string) => void;
 }
@@ -18,15 +20,30 @@ interface BulkWhatsAppModalProps {
 export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
   selectedLeads,
   settings,
+  whatsAppTemplates,
   onClose,
   onAddBulkNote,
 }) => {
+  const effectiveTemplates: { id: string; name: string; message: string }[] = React.useMemo(() => {
+    if (whatsAppTemplates && whatsAppTemplates.length > 0) {
+      return whatsAppTemplates;
+    }
+    const cached = getWhatsAppTemplates();
+    if (cached && cached.length > 0) {
+      return cached;
+    }
+    if (settings?.whatsappTemplates && settings.whatsappTemplates.length > 0) {
+      return settings.whatsappTemplates.map((t) => ({ id: t.id, name: t.title, message: t.message }));
+    }
+    return [];
+  }, [whatsAppTemplates, settings]);
+
   const [selectedTemplateId, setSelectedTemplateId] = useState(
-    settings.whatsappTemplates[0]?.id || ''
+    effectiveTemplates[0]?.id || ''
   );
   const [customMessage, setCustomMessage] = useState(
-    settings.whatsappTemplates[0]?.message ||
-      'Namaste {name}! Greetings from Tech Lab Academy regarding your interest in {course}. Our new batch ({batch}) is launching this week!'
+    effectiveTemplates[0]?.message ||
+      'Namaste {{name}}! Greetings from Tech Lab Academy regarding your interest in {{course_interest}}. Our new batch ({{batch}}) is launching this week!'
   );
 
   const [logged, setLogged] = useState(false);
@@ -34,7 +51,7 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
   // When template changes
   const handleTemplateSelect = (tplId: string) => {
     setSelectedTemplateId(tplId);
-    const found = settings.whatsappTemplates.find((t) => t.id === tplId);
+    const found = effectiveTemplates.find((t) => t.id === tplId);
     if (found) {
       setCustomMessage(found.message);
     }
@@ -42,10 +59,7 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
 
   // Generate personalized message for a lead
   const renderPersonalizedText = (lead: Lead) => {
-    return customMessage
-      .replace(/\{name\}/g, lead.name)
-      .replace(/\{course\}/g, lead.course_interest || 'Video Editing')
-      .replace(/\{batch\}/g, lead.assigned_batch || 'Upcoming Batch');
+    return replaceLeadPlaceholders(customMessage, lead);
   };
 
   const handleLogBulkNote = () => {
@@ -83,18 +97,18 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
             <div className="flex items-center justify-between">
               <label className="font-bold text-slate-200">Select Message Template</label>
               <div className="text-[11px] text-slate-500 font-mono">
-                Placeholders: {'{name}'}, {'{course}'}, {'{batch}'}
+                Placeholders: {'{{name}}'}, {'{{course_interest}}'}, {'{{batch}}'}
               </div>
             </div>
 
             <select
               value={selectedTemplateId}
               onChange={(e) => handleTemplateSelect(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2 font-medium"
+              className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-lg p-2 font-medium cursor-pointer"
             >
-              {settings.whatsappTemplates.map((t) => (
+              {effectiveTemplates.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.title}
+                  {t.name}
                 </option>
               ))}
             </select>

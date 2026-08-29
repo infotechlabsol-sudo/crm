@@ -5,6 +5,7 @@ import {
   Clock,
   PhoneCall,
   MessageCircle,
+  Mail,
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
@@ -14,7 +15,6 @@ import {
   getFollowUpCategory,
   formatRelativeDate,
   getStatusBadgeClass,
-  createWhatsAppLink,
   createTelLink,
   toDatetimeLocalValue,
 } from '../lib/utils';
@@ -26,6 +26,8 @@ interface FollowUpViewProps {
   onCustomReschedule: (leadId: string, isoDateString: string) => void;
   onMarkContacted: (leadId: string) => void;
   onOpenAddLead: () => void;
+  onOpenWhatsApp?: (lead: Lead) => void;
+  onOpenEmail?: (lead: Lead) => void;
 }
 
 export const FollowUpView: React.FC<FollowUpViewProps> = ({
@@ -35,6 +37,8 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
   onCustomReschedule,
   onMarkContacted,
   onOpenAddLead,
+  onOpenWhatsApp,
+  onOpenEmail,
 }) => {
   const [activeTab, setActiveTab] = useState<'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING'>('ALL');
   const [rescheduleModalLead, setRescheduleModalLead] = useState<Lead | null>(null);
@@ -302,15 +306,23 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
                       <PhoneCall className="w-4 h-4" />
                     </a>
 
-                    <a
-                      href={createWhatsAppLink(lead.phone, defaultWaText)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="WhatsApp"
-                      className="p-1.5 bg-slate-800 hover:bg-teal-900 text-teal-400 rounded-lg border border-slate-700 transition-all"
+                    <button
+                      type="button"
+                      onClick={() => onOpenWhatsApp?.(lead)}
+                      title="Send WhatsApp Message"
+                      className="p-1.5 bg-slate-800 hover:bg-teal-900 text-teal-400 rounded-lg border border-slate-700 transition-all cursor-pointer"
                     >
                       <MessageCircle className="w-4 h-4" />
-                    </a>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenEmail?.(lead)}
+                      title="Send Email"
+                      className="p-1.5 bg-slate-800 hover:bg-blue-900 text-blue-400 rounded-lg border border-slate-700 transition-all cursor-pointer"
+                    >
+                      <Mail className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               </div>

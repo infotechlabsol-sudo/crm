@@ -6,9 +6,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Leads collection rules
+    // Leads collection rules: Allow public creation for sharable forms, full access for logged-in staff
     match /leads/{leadId} {
-      allow read, write: if request.auth != null;
+      allow create: if true;
+      allow read, update, delete: if request.auth != null;
+    }
+
+    // Custom Forms collection rules: Allow public read/submission counter, staff full control
+    match /custom_forms/{formId} {
+      allow read: if true;
+      allow update: if true;
+      allow create, delete: if request.auth != null;
     }
 
     // Settings document rules
@@ -23,6 +31,16 @@ service cloud.firestore {
 
     // Batches collection rules
     match /batches/{batchId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // WhatsApp templates collection rules
+    match /whatsapp_templates/{templateId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Email templates collection rules
+    match /email_templates/{templateId} {
       allow read, write: if request.auth != null;
     }
   }

@@ -153,6 +153,112 @@ export function getStatusBadgeClass(status: LeadStatus): { bg: string; text: str
 }
 
 /**
+ * Replace template placeholders like {{name}}, {{course_interest}}, {{batch}}, etc.
+ */
+export function replaceLeadPlaceholders(
+  templateText: string,
+  lead?: {
+    id?: string;
+    name?: string;
+    phone?: string;
+    email?: string;
+    source?: string;
+    course_interest?: string;
+    assigned_batch?: string;
+    lead_score?: string;
+    address?: string;
+    class_mode?: string;
+    [key: string]: any;
+  } | null
+): string {
+  if (!templateText) return '';
+  if (!lead) return templateText;
+
+  const rawPhone = lead.phone || '';
+  const digits = cleanPhoneNumber(rawPhone);
+  const formattedPhone = digits.length === 10 ? `+91${digits}` : digits ? `+${digits}` : '';
+
+  const regNum = lead.id ? `REG-${lead.id.slice(-6).toUpperCase()}` : 'REG-000000';
+  const remainingFees = '₹0';
+
+  let result = templateText;
+
+  // Double curly braces {{placeholder}}
+  result = result
+    .replace(/\{\{\s*name\s*\}\}/gi, lead.name || '')
+    .replace(/\{\{\s*course(?:_interest)?\s*\}\}/gi, lead.course_interest || 'Video Editing')
+    .replace(/\{\{\s*batch\s*\}\}/gi, lead.assigned_batch || 'Upcoming Batch')
+    .replace(/\{\{\s*assigned_batch\s*\}\}/gi, lead.assigned_batch || 'Upcoming Batch')
+    .replace(/\{\{\s*phone\s*\}\}/gi, formattedPhone)
+    .replace(/\{\{\s*email\s*\}\}/gi, lead.email || '')
+    .replace(/\{\{\s*source\s*\}\}/gi, lead.source || '')
+    .replace(/\{\{\s*registration_number\s*\}\}/gi, regNum)
+    .replace(/\{\{\s*remaining_fees\s*\}\}/gi, remainingFees)
+    .replace(/\{\{\s*address\s*\}\}/gi, lead.address || '')
+    .replace(/\{\{\s*class_mode\s*\}\}/gi, lead.class_mode || 'Offline')
+    .replace(/\{\{\s*lead_score\s*\}\}/gi, lead.lead_score || 'Warm');
+
+  // Single curly braces {placeholder}
+  result = result
+    .replace(/\{\s*name\s*\}/gi, lead.name || '')
+    .replace(/\{\s*course(?:_interest)?\s*\}/gi, lead.course_interest || 'Video Editing')
+    .replace(/\{\s*batch\s*\}/gi, lead.assigned_batch || 'Upcoming Batch')
+    .replace(/\{\s*assigned_batch\s*\}/gi, lead.assigned_batch || 'Upcoming Batch')
+    .replace(/\{\s*phone\s*\}/gi, formattedPhone)
+    .replace(/\{\s*email\s*\}/gi, lead.email || '')
+    .replace(/\{\s*source\s*\}/gi, lead.source || '')
+    .replace(/\{\s*registration_number\s*\}/gi, regNum)
+    .replace(/\{\s*remaining_fees\s*\}/gi, remainingFees)
+    .replace(/\{\s*address\s*\}/gi, lead.address || '')
+    .replace(/\{\s*class_mode\s*\}/gi, lead.class_mode || 'Offline')
+    .replace(/\{\s*lead_score\s*\}/gi, lead.lead_score || 'Warm');
+
+  return result;
+}
+
+/**
+ * Web Audio API synthesized notification sound (pleasant, non-intrusive bell chime)
+ */
+export function playNotificationChime() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+
+    const now = ctx.currentTime;
+    // Bell Tone 1: 880 Hz (A5)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(880, now);
+    gain1.gain.setValueAtTime(0.12, now);
+    gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.25);
+
+    // Bell Tone 2: 1318.5 Hz (E6)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(1318.5, now + 0.06);
+    gain2.gain.setValueAtTime(0.14, now + 0.06);
+    gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.06);
+    osc2.stop(now + 0.45);
+  } catch (e) {
+    // Gracefully handle browser autoplay policies
+  }
+}
+
+/**
  * Get lead score badge classes
  */
 export function getScoreBadgeClass(score: LeadScore): { bg: string; text: string; border: string } {
