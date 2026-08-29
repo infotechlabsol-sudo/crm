@@ -18,7 +18,9 @@
         "next_followup_date": { "type": "string" },
         "tags": { "type": "array" },
         "address": { "type": "string" },
-        "converted_to_student": { "type": "boolean" }
+        "converted_to_student": { "type": "boolean" },
+        "is_deleted": { "type": "boolean" },
+        "deleted_date": { "type": "string" }
       },
       "required": ["name", "phone", "source", "course_interest", "status", "assigned_batch", "lead_score", "created_date"]
     },
@@ -93,6 +95,20 @@
         "submission_count": { "type": "number" }
       },
       "required": ["form_name", "form_title", "fields", "active"]
+    },
+    "Webhook": {
+      "title": "Webhook Endpoint",
+      "description": "Configured webhook endpoint for external lead ingestion",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "webhook_key": { "type": "string" },
+        "active": { "type": "boolean" },
+        "created_timestamp": { "type": "string" },
+        "last_received_timestamp": { "type": "string" },
+        "total_received": { "type": "number" }
+      },
+      "required": ["name", "webhook_key", "active", "created_timestamp", "total_received"]
     }
   },
   "firestore": {
@@ -103,6 +119,10 @@
     "/custom_forms/{formId}": {
       "schema": "CustomForm",
       "description": "Collection of sharable lead capture forms"
+    },
+    "/webhooks/{webhookId}": {
+      "schema": "Webhook",
+      "description": "Collection of configured webhook endpoints"
     },
     "/settings/config": {
       "schema": "CRMSettings",

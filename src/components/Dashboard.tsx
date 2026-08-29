@@ -54,19 +54,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  // 1. KPI Calculations
-  const totalLeads = leads.length;
+  // Filter out soft deleted leads for dashboard metrics
+  const activeLeads = leads.filter((l) => !l.is_deleted);
 
-  const newLeadsToday = leads.filter((l) => {
+  // 1. KPI Calculations
+  const totalLeads = activeLeads.length;
+
+  const newLeadsToday = activeLeads.filter((l) => {
     const created = new Date(l.created_date);
     return created >= startOfToday;
   }).length;
 
-  const totalAdmissions = leads.filter(
+  const totalAdmissions = activeLeads.filter(
     (l) => l.status === 'Enrolled' || l.converted_to_student
   ).length;
 
-  const enrolledThisMonth = leads.filter((l) => {
+  const enrolledThisMonth = activeLeads.filter((l) => {
     if (l.status !== 'Enrolled' && !l.converted_to_student) return false;
     const dateStr = l.enrolled_date || l.last_contacted_date || l.created_date;
     if (!dateStr) return false;
@@ -82,7 +85,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     : '0.0';
 
   // 2. Follow-ups Due Today or Overdue (Sorted by time ascending)
-  const followupsDueList = leads
+  const followupsDueList = activeLeads
     .filter((l) => {
       if (!l.next_followup_date) return false;
       if (l.status === 'Enrolled' || l.status === 'Lost' || l.status === 'Not Interested') return false;
@@ -95,8 +98,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       return dateA - dateB;
     });
 
-  const dueTodayCount = leads.filter((l) => getFollowUpCategory(l.next_followup_date) === 'due_today').length;
-  const overdueCount = leads.filter((l) => getFollowUpCategory(l.next_followup_date) === 'overdue').length;
+  const dueTodayCount = activeLeads.filter((l) => getFollowUpCategory(l.next_followup_date) === 'due_today').length;
+  const overdueCount = activeLeads.filter((l) => getFollowUpCategory(l.next_followup_date) === 'overdue').length;
 
   // 3. Pipeline Funnel Data (By Status)
   const pipelineOrder: LeadStatus[] = [
@@ -122,7 +125,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const statusChartData = pipelineOrder.map((status) => {
-    const count = leads.filter((l) => l.status === status).length;
+    const count = activeLeads.filter((l) => l.status === status).length;
     return {
       status,
       count,
@@ -132,7 +135,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // 4. Leads by Source Data
   const sourceCounts: Record<string, number> = {};
-  leads.forEach((l) => {
+  activeLeads.forEach((l) => {
     const src = l.source || 'Other';
     sourceCounts[src] = (sourceCounts[src] || 0) + 1;
   });

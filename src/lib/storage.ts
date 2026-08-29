@@ -1,4 +1,4 @@
-import { Lead, CRMSettings, CourseItem, BatchItem, WhatsAppTemplate, EmailTemplate, CustomForm, FormFieldDefinition } from '../types';
+import { Lead, CRMSettings, CourseItem, BatchItem, WhatsAppTemplate, EmailTemplate, CustomForm, FormFieldDefinition, Webhook } from '../types';
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import {
@@ -280,6 +280,8 @@ export function subscribeToLeads(
         converted_to_student: data.converted_to_student || false,
         class_mode: data.class_mode || 'Offline',
         dob: data.dob || '',
+        is_deleted: data.is_deleted === true,
+        deleted_date: data.deleted_date || null,
       } as Lead);
     });
 
@@ -754,6 +756,12 @@ export function saveLeads(leads: Lead[]): void {
       if (data.dob === undefined) {
         data.dob = '';
       }
+      if (data.is_deleted === undefined) {
+        data.is_deleted = false;
+      }
+      if (data.deleted_date === undefined) {
+        data.deleted_date = null;
+      }
       const sanitized = sanitizeData(data);
       await setDoc(doc(db, 'leads', id), sanitized);
     });
@@ -787,6 +795,12 @@ export function saveLead(lead: Lead): Lead {
   }
   if (data.dob === undefined) {
     data.dob = '';
+  }
+  if (data.is_deleted === undefined) {
+    data.is_deleted = false;
+  }
+  if (data.deleted_date === undefined) {
+    data.deleted_date = null;
   }
   const sanitized = sanitizeData(data);
   setDoc(doc(db, 'leads', id), sanitized).catch((err) => {
@@ -844,15 +858,79 @@ export function addNoteToLead(id: string, noteText: string, actor: string = 'Adm
   return updatedLead;
 }
 
+// Soft delete a lead: marks is_deleted = true and sets deleted_date timestamp
 export function deleteLead(id: string): void {
+  const lead = leadsCache.find((l) => l.id === id);
+  if (!lead) return;
+
+  const nowISO = new Date().toISOString();
+  const updatedLead: Lead = {
+    ...lead,
+    is_deleted: true,
+    deleted_date: nowISO,
+    notes_history: [
+      {
+        id: 'note_del_' + Date.now(),
+        note_text: 'Lead moved to Deleted Leads archive',
+        timestamp: nowISO,
+        added_by: 'Admin',
+        is_system: true,
+      },
+      ...(lead.notes_history || []),
+    ],
+  };
+  saveLead(updatedLead);
+}
+
+// Soft delete multiple leads
+export function deleteLeadsBulk(ids: string[]): void {
+  ids.forEach((id) => {
+    deleteLead(id);
+  });
+}
+
+// Restore a soft-deleted lead
+export function restoreLead(id: string): void {
+  const lead = leadsCache.find((l) => l.id === id);
+  if (!lead) return;
+
+  const nowISO = new Date().toISOString();
+  const updatedLead: Lead = {
+    ...lead,
+    is_deleted: false,
+    deleted_date: null,
+    notes_history: [
+      {
+        id: 'note_rest_' + Date.now(),
+        note_text: 'Lead restored from Deleted Leads archive',
+        timestamp: nowISO,
+        added_by: 'Admin',
+        is_system: true,
+      },
+      ...(lead.notes_history || []),
+    ],
+  };
+  saveLead(updatedLead);
+}
+
+// Bulk restore soft-deleted leads
+export function restoreLeadsBulk(ids: string[]): void {
+  ids.forEach((id) => {
+    restoreLead(id);
+  });
+}
+
+// Permanently delete a lead from Firestore (irreversible)
+export function permanentlyDeleteLead(id: string): void {
   deleteDoc(doc(db, 'leads', id)).catch((err) => {
     handleFirestoreError(err, OperationType.DELETE, `leads/${id}`);
   });
 }
 
-export function deleteLeadsBulk(ids: string[]): void {
+// Bulk permanent delete
+export function permanentlyDeleteLeadsBulk(ids: string[]): void {
   ids.forEach((id) => {
-    deleteLead(id);
+    permanentlyDeleteLead(id);
   });
 }
 
@@ -1203,4 +1281,352 @@ export async function submitPublicLeadForm(
 
   return createdLead;
 }
+
+// ==========================================
+// Webhooks Management & Live Ingestion
+// ==========================================
+
+export function generateWebhookKey(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let rand = '';
+  for (let i = 0; i < 24; i++) {
+    rand += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `whk_${rand}`;
+}
+
+export const DEFAULT_SAMPLE_WEBHOOKS: Webhook[] = [
+  {
+    id: 'whk_sample_zapier',
+    name: 'Zapier - Website Popup Inquiries',
+    webhook_key: 'whk_zapier_live_9a7x2f8b1c4e',
+    active: true,
+    created_timestamp: new Date(Date.now() - 7 * 86400000).toISOString(),
+    last_received_timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
+    total_received: 12,
+  },
+  {
+    id: 'whk_sample_make',
+    name: 'Make.com - Facebook Lead Ads',
+    webhook_key: 'whk_make_fb_leads_k3m8p9q2w1v5',
+    active: true,
+    created_timestamp: new Date(Date.now() - 14 * 86400000).toISOString(),
+    last_received_timestamp: new Date(Date.now() - 3600000 * 22).toISOString(),
+    total_received: 38,
+  },
+];
+
+let webhooksCache: Webhook[] = DEFAULT_SAMPLE_WEBHOOKS;
+
+export function subscribeToWebhooks(
+  onUpdate: (webhooks: Webhook[]) => void,
+  onError?: (error: Error) => void
+) {
+  const colRef = collection(db, 'webhooks');
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      if (snapshot.empty) {
+        // Seed default sample webhooks if empty and user is logged in
+        if (auth.currentUser) {
+          DEFAULT_SAMPLE_WEBHOOKS.forEach(async (sample) => {
+            try {
+              const { id, ...data } = sample;
+              await setDoc(doc(db, 'webhooks', id), data);
+            } catch (e) {
+              console.warn('Could not seed sample webhook:', e);
+            }
+          });
+        }
+        onUpdate(DEFAULT_SAMPLE_WEBHOOKS);
+        return;
+      }
+
+      const webhooks: Webhook[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        webhooks.push({
+          id: docSnap.id,
+          name: data.name || 'Untitled Webhook',
+          webhook_key: data.webhook_key || generateWebhookKey(),
+          active: data.active !== false,
+          created_timestamp: data.created_timestamp || new Date().toISOString(),
+          last_received_timestamp: data.last_received_timestamp || null,
+          total_received: typeof data.total_received === 'number' ? data.total_received : 0,
+        });
+      });
+
+      // Sort by creation date descending
+      webhooks.sort(
+        (a, b) =>
+          new Date(b.created_timestamp || 0).getTime() -
+          new Date(a.created_timestamp || 0).getTime()
+      );
+
+      webhooksCache = webhooks;
+      onUpdate(webhooks);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'webhooks');
+      if (onError) onError(error);
+    }
+  );
+}
+
+export function getWebhooks(): Webhook[] {
+  return webhooksCache;
+}
+
+export async function createWebhook(name: string): Promise<Webhook> {
+  const newWebhook: Omit<Webhook, 'id'> = {
+    name: name.trim(),
+    webhook_key: generateWebhookKey(),
+    active: true,
+    created_timestamp: new Date().toISOString(),
+    last_received_timestamp: null,
+    total_received: 0,
+  };
+
+  try {
+    const cleanData = sanitizeData(newWebhook);
+    const docRef = await addDoc(collection(db, 'webhooks'), cleanData);
+    const created: Webhook = {
+      id: docRef.id,
+      ...newWebhook,
+    };
+    webhooksCache = [created, ...webhooksCache];
+    return created;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'webhooks');
+    throw err;
+  }
+}
+
+export async function updateWebhook(id: string, name: string): Promise<void> {
+  try {
+    const cleanData = sanitizeData({ name: name.trim() });
+    await setDoc(doc(db, 'webhooks', id), cleanData, { merge: true });
+    webhooksCache = webhooksCache.map((w) => (w.id === id ? { ...w, name: name.trim() } : w));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `webhooks/${id}`);
+    throw err;
+  }
+}
+
+export async function toggleWebhookActive(id: string, active: boolean): Promise<void> {
+  try {
+    await setDoc(doc(db, 'webhooks', id), { active }, { merge: true });
+    webhooksCache = webhooksCache.map((w) => (w.id === id ? { ...w, active } : w));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `webhooks/${id}`);
+    throw err;
+  }
+}
+
+export async function deleteWebhook(id: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'webhooks', id));
+    webhooksCache = webhooksCache.filter((w) => w.id !== id);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `webhooks/${id}`);
+    throw err;
+  }
+}
+
+export async function processIncomingWebhook(
+  webhookKey: string,
+  payload: Record<string, any>
+): Promise<{ success: boolean; lead: Lead; webhook: Webhook }> {
+  // 1. Find matching webhook by webhook_key
+  let matchedWebhook: Webhook | null = null;
+
+  // Check cache first
+  matchedWebhook = webhooksCache.find((w) => w.webhook_key === webhookKey) || null;
+
+  // If not in cache or cache is empty, query Firestore
+  if (!matchedWebhook) {
+    try {
+      const snap = await getDocs(collection(db, 'webhooks'));
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.webhook_key === webhookKey) {
+          matchedWebhook = {
+            id: d.id,
+            name: data.name || 'Untitled Webhook',
+            webhook_key: data.webhook_key,
+            active: data.active !== false,
+            created_timestamp: data.created_timestamp || new Date().toISOString(),
+            last_received_timestamp: data.last_received_timestamp || null,
+            total_received: typeof data.total_received === 'number' ? data.total_received : 0,
+          };
+        }
+      });
+    } catch (e) {
+      console.warn('Error querying webhooks in processIncomingWebhook:', e);
+    }
+  }
+
+  // Fallback check sample list
+  if (!matchedWebhook) {
+    matchedWebhook = DEFAULT_SAMPLE_WEBHOOKS.find((w) => w.webhook_key === webhookKey) || null;
+  }
+
+  if (!matchedWebhook) {
+    throw new Error(`Invalid webhook key: "${webhookKey}". No matching endpoint found.`);
+  }
+
+  if (!matchedWebhook.active) {
+    throw new Error(`Webhook "${matchedWebhook.name}" is currently inactive/disabled.`);
+  }
+
+  // 2. Parse and map payload fields
+  const name =
+    payload.name ||
+    payload.student_name ||
+    payload.full_name ||
+    payload.candidate_name ||
+    payload['Student Name'] ||
+    payload['Full Name'] ||
+    payload['Name'] ||
+    'New Webhook Lead';
+
+  const phone =
+    payload.phone ||
+    payload.mobile ||
+    payload.contact ||
+    payload.whatsapp ||
+    payload['Phone'] ||
+    payload['Mobile'] ||
+    payload['Contact'] ||
+    '';
+
+  const email =
+    payload.email ||
+    payload.email_address ||
+    payload['Email'] ||
+    payload['Email Address'] ||
+    undefined;
+
+  const source =
+    payload.source ||
+    payload['Source'] ||
+    payload.lead_source ||
+    matchedWebhook.name ||
+    'Webhook Integration';
+
+  const course_interest =
+    payload.course_interest ||
+    payload.course ||
+    payload['Course'] ||
+    payload['Course Interest'] ||
+    payload['Program'] ||
+    'Other';
+
+  let class_mode: 'Online' | 'Offline' = 'Offline';
+  const modeVal = String(
+    payload.class_mode || payload.mode || payload['Class Mode'] || payload['Mode'] || ''
+  ).toLowerCase();
+  if (modeVal.includes('online')) {
+    class_mode = 'Online';
+  }
+
+  const address =
+    payload.address ||
+    payload.city ||
+    payload['Address'] ||
+    payload['City'] ||
+    payload.location ||
+    '';
+
+  const dob = payload.dob || payload.birthdate || payload['DOB'] || '';
+
+  const lead_score = (['Hot', 'Warm', 'Cold'].includes(payload.lead_score)
+    ? payload.lead_score
+    : 'Warm') as 'Hot' | 'Warm' | 'Cold';
+
+  // Custom tags
+  const tags: string[] = [`Webhook: ${matchedWebhook.name}`];
+  if (Array.isArray(payload.tags)) {
+    payload.tags.forEach((t: any) => tags.push(String(t)));
+  } else if (typeof payload.tags === 'string' && payload.tags.trim()) {
+    payload.tags.split(',').forEach((t) => tags.push(t.trim()));
+  }
+
+  const nowISO = new Date().toISOString();
+
+  // Create summary note
+  const rawPayloadSummary = Object.entries(payload)
+    .filter(([k]) => !['notes_history'].includes(k))
+    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
+    .join('\n');
+
+  const newLeadData: Omit<Lead, 'id'> = {
+    name: String(name).trim(),
+    phone: String(phone).trim(),
+    email: email ? String(email).trim() : undefined,
+    source: String(source).trim(),
+    course_interest: String(course_interest).trim(),
+    status: 'New',
+    assigned_batch: 'Unassigned',
+    lead_score,
+    created_date: nowISO,
+    last_contacted_date: undefined,
+    next_followup_date: undefined,
+    tags,
+    address: String(address).trim(),
+    converted_to_student: false,
+    class_mode,
+    dob: String(dob).trim(),
+    notes_history: [
+      {
+        id: 'note_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        note_text: `⚡ Captured via Webhook: "${matchedWebhook.name}"\nKey: ${matchedWebhook.webhook_key}\nReceived At: ${new Date().toLocaleString('en-IN')}\n\n--- Payload Received ---\n${rawPayloadSummary}`,
+        timestamp: nowISO,
+        added_by: 'Webhook Ingestion System',
+        is_system: true,
+      },
+    ],
+  };
+
+  const cleanLeadData = sanitizeData(newLeadData);
+
+  // 3. Write to Firestore 'leads' collection
+  const leadDocRef = await addDoc(collection(db, 'leads'), cleanLeadData);
+  const createdLead: Lead = {
+    id: leadDocRef.id,
+    ...newLeadData,
+  };
+
+  // 4. Update webhook total_received and last_received_timestamp
+  const newTotal = (matchedWebhook.total_received || 0) + 1;
+  const updatedWebhook: Webhook = {
+    ...matchedWebhook,
+    total_received: newTotal,
+    last_received_timestamp: nowISO,
+  };
+
+  try {
+    const whDocRef = doc(db, 'webhooks', matchedWebhook.id);
+    await setDoc(
+      whDocRef,
+      {
+        total_received: newTotal,
+        last_received_timestamp: nowISO,
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Could not update webhook stats in Firestore:', err);
+  }
+
+  // Update local cache
+  webhooksCache = webhooksCache.map((w) => (w.id === matchedWebhook!.id ? updatedWebhook : w));
+
+  return {
+    success: true,
+    lead: createdLead,
+    webhook: updatedWebhook,
+  };
+}
+
 

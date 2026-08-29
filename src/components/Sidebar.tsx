@@ -10,21 +10,27 @@ import {
   Sparkles,
   LogOut,
   UserX,
+  UserMinus,
   GraduationCap,
   X,
   Menu,
   Share2,
+  Layers,
+  Trash2,
 } from 'lucide-react';
 
 export type NavView =
   | 'dashboard'
   | 'leads'
   | 'admissions'
+  | 'not_interested'
+  | 'lost'
+  | 'deleted'
   | 'forms'
   | 'followups'
   | 'import'
-  | 'settings'
-  | 'lost';
+  | 'integrations'
+  | 'settings';
 
 interface SidebarProps {
   currentView: NavView;
@@ -34,6 +40,8 @@ interface SidebarProps {
   dueTodayCount: number;
   newSheetLeadsCount?: number;
   formsCount?: number;
+  webhooksCount?: number;
+  deletedCount?: number;
   onLogout?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
@@ -48,6 +56,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   dueTodayCount,
   newSheetLeadsCount = 0,
   formsCount = 0,
+  webhooksCount = 0,
+  deletedCount = 0,
   onLogout,
   isMobileOpen = false,
   onCloseMobile,
@@ -76,16 +86,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: GraduationCap,
     },
     {
-      id: 'forms' as NavView,
-      label: 'Sharable Forms',
-      icon: Share2,
-      badge: formsCount > 0 ? `${formsCount}` : undefined,
-      badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
+      id: 'not_interested' as NavView,
+      label: 'Not Interested',
+      icon: UserMinus,
     },
     {
       id: 'lost' as NavView,
       label: 'Lost Leads',
       icon: UserX,
+    },
+    {
+      id: 'deleted' as NavView,
+      label: 'Deleted Leads',
+      icon: Trash2,
+      badge: deletedCount > 0 ? `${deletedCount}` : undefined,
+      badgeColor: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+    },
+    {
+      id: 'forms' as NavView,
+      label: 'Sharable Forms',
+      icon: Share2,
+      badge: formsCount > 0 ? `${formsCount}` : undefined,
+      badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
     },
     {
       id: 'followups' as NavView,
@@ -98,6 +120,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'import' as NavView,
       label: 'CSV Bulk Import',
       icon: FileSpreadsheet,
+    },
+    {
+      id: 'integrations' as NavView,
+      label: 'Integrations',
+      icon: Layers,
+      badge: 'Live',
+      badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
     },
     {
       id: 'settings' as NavView,

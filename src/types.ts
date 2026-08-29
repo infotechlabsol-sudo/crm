@@ -59,6 +59,8 @@ export interface Lead {
   class_mode?: 'Online' | 'Offline'; // CHANGE 1: Class mode (Online/Offline)
   dob?: string; // CHANGE 2: Date of Birth (YYYY-MM-DD)
   enrolled_date?: string; // ISO string captured when lead status becomes Enrolled
+  is_deleted?: boolean; // Soft delete flag
+  deleted_date?: string | null; // Timestamp when lead was soft deleted
 }
 
 export interface CourseItem {
@@ -146,4 +148,15 @@ export interface CustomForm {
   created_timestamp: string; // ISO string
   submission_count: number; // default 0
 }
+
+export interface Webhook {
+  id: string;
+  name: string; // e.g. "Zapier - Website Popup"
+  webhook_key: string; // randomly generated unique string, used to identify and secure this webhook endpoint
+  active: boolean; // default true
+  created_timestamp: string; // auto ISO string
+  last_received_timestamp: string | null; // nullable ISO string
+  total_received: number; // default 0
+}
+
 

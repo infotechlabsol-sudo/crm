@@ -44,9 +44,9 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
   const [rescheduleModalLead, setRescheduleModalLead] = useState<Lead | null>(null);
   const [customDateTime, setCustomDateTime] = useState('');
 
-  // Filter leads with next_followup_date
+  // Filter leads with next_followup_date (exclude deleted leads)
   const followUpLeads = leads
-    .filter((l) => !!l.next_followup_date)
+    .filter((l) => !l.is_deleted && !!l.next_followup_date)
     .sort((a, b) => {
       const dateA = new Date(a.next_followup_date || 0).getTime();
       const dateB = new Date(b.next_followup_date || 0).getTime();

@@ -59,12 +59,14 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Group leads
-  const overdueLeads = leads
+  // Group leads (exclude soft-deleted)
+  const activeLeads = leads.filter((l) => !l.is_deleted);
+
+  const overdueLeads = activeLeads
     .filter((l) => getFollowUpCategory(l.next_followup_date) === 'overdue')
     .sort((a, b) => new Date(a.next_followup_date || 0).getTime() - new Date(b.next_followup_date || 0).getTime());
 
-  const dueTodayLeads = leads
+  const dueTodayLeads = activeLeads
     .filter((l) => getFollowUpCategory(l.next_followup_date) === 'due_today')
     .sort((a, b) => new Date(a.next_followup_date || 0).getTime() - new Date(b.next_followup_date || 0).getTime());
 

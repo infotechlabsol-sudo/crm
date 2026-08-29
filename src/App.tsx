@@ -7,6 +7,10 @@ import {
   addNoteToLead,
   deleteLead,
   deleteLeadsBulk,
+  restoreLead,
+  restoreLeadsBulk,
+  permanentlyDeleteLead,
+  permanentlyDeleteLeadsBulk,
   getSettings,
   saveSettings,
   clearAllLeads,
@@ -23,9 +27,15 @@ import {
   updateCustomForm,
   toggleCustomFormActive,
   deleteCustomForm,
+  subscribeToWebhooks,
+  createWebhook,
+  updateWebhook,
+  toggleWebhookActive,
+  deleteWebhook,
   DEFAULT_WHATSAPP_TEMPLATES,
   DEFAULT_EMAIL_TEMPLATES,
   DEFAULT_SAMPLE_CUSTOM_FORMS,
+  DEFAULT_SAMPLE_WEBHOOKS,
 } from './lib/storage';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import {
@@ -37,6 +47,7 @@ import {
   WhatsAppTemplate,
   EmailTemplate,
   CustomForm,
+  Webhook,
 } from './types';
 import { getFollowUpCategory } from './lib/utils';
 import { Sidebar, NavView } from './components/Sidebar';
@@ -53,6 +64,7 @@ import { SendEmailModal } from './components/SendEmailModal';
 import { SettingsView } from './components/SettingsView';
 import { CustomFormsView } from './components/CustomFormsView';
 import { PublicFormView } from './components/PublicFormView';
+import { IntegrationsView } from './components/IntegrationsView';
 import { LoginView } from './components/LoginView';
 import { Loader2 } from 'lucide-react';
 import {
@@ -102,6 +114,7 @@ export default function App() {
   const [whatsAppTemplates, setWhatsAppTemplates] = useState<WhatsAppTemplate[]>(DEFAULT_WHATSAPP_TEMPLATES);
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>(DEFAULT_EMAIL_TEMPLATES);
   const [customForms, setCustomForms] = useState<CustomForm[]>(DEFAULT_SAMPLE_CUSTOM_FORMS);
+  const [webhooks, setWebhooks] = useState<Webhook[]>(DEFAULT_SAMPLE_WEBHOOKS);
   const [settings, setSettings] = useState<CRMSettings>(DEFAULT_SETTINGS_LOCAL_FALLBACK());
 
   // Live active courses and batches from Firestore collections
@@ -360,6 +373,15 @@ export default function App() {
       }
     );
 
+    const unsubscribeWebhooks = subscribeToWebhooks(
+      (loadedWebhooks) => {
+        setWebhooks(loadedWebhooks);
+      },
+      (error) => {
+        console.error('Webhooks subscription error:', error);
+      }
+    );
+
     return () => {
       unsubscribeLeads();
       unsubscribeSettings();
@@ -368,6 +390,7 @@ export default function App() {
       unsubscribeWhatsAppTemplates();
       unsubscribeEmailTemplates();
       unsubscribeCustomForms();
+      unsubscribeWebhooks();
     };
   }, [user]);
 
@@ -399,12 +422,14 @@ export default function App() {
 
   // Badges counters
   const overdueCount = leads.filter(
-    (l) => getFollowUpCategory(l.next_followup_date) === 'overdue'
+    (l) => !l.is_deleted && getFollowUpCategory(l.next_followup_date) === 'overdue'
   ).length;
 
   const dueTodayCount = leads.filter(
-    (l) => getFollowUpCategory(l.next_followup_date) === 'due_today'
+    (l) => !l.is_deleted && getFollowUpCategory(l.next_followup_date) === 'due_today'
   ).length;
+
+  const deletedCount = leads.filter((l) => l.is_deleted).length;
 
   // Handlers
   const handleSaveLead = (updatedLead: Lead) => {
@@ -437,6 +462,33 @@ export default function App() {
     if (selectedLead && selectedLead.id === leadId) {
       setSelectedLead(null);
     }
+  };
+
+  const handleRestoreLead = (leadId: string) => {
+    restoreLead(leadId);
+    refreshLeads();
+    if (selectedLead && selectedLead.id === leadId) {
+      const updated = getLeads().find((l) => l.id === leadId);
+      if (updated) setSelectedLead(updated);
+    }
+  };
+
+  const handleRestoreLeadsBulk = (leadIds: string[]) => {
+    restoreLeadsBulk(leadIds);
+    refreshLeads();
+  };
+
+  const handlePermanentlyDeleteLead = (leadId: string) => {
+    permanentlyDeleteLead(leadId);
+    refreshLeads();
+    if (selectedLead && selectedLead.id === leadId) {
+      setSelectedLead(null);
+    }
+  };
+
+  const handlePermanentlyDeleteLeadsBulk = (leadIds: string[]) => {
+    permanentlyDeleteLeadsBulk(leadIds);
+    refreshLeads();
   };
 
   const handleBulkChangeStatus = (selectedIds: string[], status: LeadStatus) => {
@@ -619,9 +671,17 @@ export default function App() {
       title: 'Admissions & Enrolled Students',
       subtitle: 'View and manage all converted student enrollments and records',
     },
+    not_interested: {
+      title: 'Not Interested Leads Archive',
+      subtitle: 'View and reactivate student inquiries marked as Not Interested',
+    },
     lost: {
       title: 'Lost Leads Archive',
       subtitle: 'View and reactivate student leads marked as Lost',
+    },
+    deleted: {
+      title: 'Deleted Leads Trash & Archive',
+      subtitle: 'Review soft-deleted student leads, restore active records, or purge permanently',
     },
     forms: {
       title: 'Sharable Lead Forms',
@@ -634,6 +694,10 @@ export default function App() {
     import: {
       title: 'Bulk CSV Lead Import',
       subtitle: 'Import Meta Ads, Google Lead Forms, or Excel spreadsheets',
+    },
+    integrations: {
+      title: 'Integrations & Lead Ingestion Hub',
+      subtitle: 'Google Sheets Live Sync, Sharable Forms, and Zapier / Make.com Webhooks',
     },
     settings: {
       title: 'System Configuration',
@@ -703,6 +767,8 @@ export default function App() {
         dueTodayCount={dueTodayCount}
         newSheetLeadsCount={newSheetLeadsCount}
         formsCount={customForms.length}
+        webhooksCount={webhooks.length}
+        deletedCount={deletedCount}
         onLogout={() => signOut(auth)}
         isMobileOpen={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
@@ -762,7 +828,11 @@ export default function App() {
             />
           )}
 
-          {(currentView === 'leads' || currentView === 'lost' || currentView === 'admissions') && (
+          {(currentView === 'leads' ||
+            currentView === 'lost' ||
+            currentView === 'admissions' ||
+            currentView === 'not_interested' ||
+            currentView === 'deleted') && (
             <LeadList
               leads={leads}
               settings={effectiveSettings}
@@ -770,15 +840,29 @@ export default function App() {
               onBulkChangeStatus={handleBulkChangeStatus}
               onBulkAssignBatch={handleBulkAssignBatch}
               onBulkDelete={handleBulkDelete}
+              onRestoreLead={handleRestoreLead}
+              onRestoreLeadsBulk={handleRestoreLeadsBulk}
+              onPermanentDeleteLead={handlePermanentlyDeleteLead}
+              onPermanentDeleteLeadsBulk={handlePermanentlyDeleteLeadsBulk}
               onOpenBulkWhatsAppWithSelection={(selectedIds) => {
                 setBulkWhatsAppLeadIds(selectedIds);
                 setShowBulkWhatsAppModal(true);
               }}
               onExportSelectedCSV={(selectedLeads) => handleExportCSV(selectedLeads)}
               onOpenAddLead={() => setShowAddLeadModal(true)}
-              initialStatusFilter={currentView === 'lost' ? 'Lost' : currentView === 'admissions' ? 'Enrolled' : leadListStatusFilter}
+              initialStatusFilter={
+                currentView === 'lost'
+                  ? 'Lost'
+                  : currentView === 'admissions'
+                  ? 'Enrolled'
+                  : currentView === 'not_interested'
+                  ? 'Not Interested'
+                  : leadListStatusFilter
+              }
               isLostLeadsView={currentView === 'lost'}
               isAdmissionsView={currentView === 'admissions'}
+              isNotInterestedView={currentView === 'not_interested'}
+              isDeletedLeadsView={currentView === 'deleted'}
               onOpenGoogleSheetsModal={() => setShowSheetsModal(true)}
               onTriggerSheetSync={runGoogleSheetSync}
               isSheetSyncing={isSheetsSyncing}
@@ -840,6 +924,48 @@ export default function App() {
             </div>
           )}
 
+          {currentView === 'integrations' && (
+            <IntegrationsView
+              sheetsConfig={sheetsConfig}
+              onSaveSheetsConfig={handleSaveSheetsConfig}
+              onRunSheetSync={runGoogleSheetSync}
+              isSheetSyncing={isSheetsSyncing}
+              skippedRowsHistory={skippedRowsHistory}
+              forms={customForms}
+              onNavigateToForms={() => setCurrentView('forms')}
+              onOpenPublicForm={(formId) => {
+                setPublicFormId(formId);
+              }}
+              webhooks={webhooks}
+              onCreateWebhook={async (name) => {
+                return await createWebhook(name);
+              }}
+              onUpdateWebhook={async (id, name) => {
+                await updateWebhook(id, name);
+              }}
+              onToggleWebhookActive={async (id, active) => {
+                await toggleWebhookActive(id, active);
+              }}
+              onDeleteWebhook={async (id) => {
+                await deleteWebhook(id);
+              }}
+              onWebhookLeadCreated={(createdLead) => {
+                refreshLeads();
+                playNotificationSound();
+                setToasts((prev) => [
+                  ...prev,
+                  {
+                    id: 'toast_' + Date.now(),
+                    title: `⚡ Webhook Lead Ingested: ${createdLead.name}`,
+                    subtitle: `Source: ${createdLead.source}`,
+                  },
+                ]);
+              }}
+              leads={leads}
+              settings={effectiveSettings}
+            />
+          )}
+
           {currentView === 'settings' && (
             <SettingsView
               settings={effectiveSettings}
@@ -874,6 +1000,8 @@ export default function App() {
           onAddNote={handleAddNote}
           onStatusChange={handleStatusChange}
           onDeleteLead={handleDeleteLead}
+          onRestoreLead={handleRestoreLead}
+          onPermanentDeleteLead={handlePermanentlyDeleteLead}
         />
       )}
 
