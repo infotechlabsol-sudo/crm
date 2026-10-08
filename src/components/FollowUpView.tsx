@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lead } from '../types';
+import { Lead, FollowUpSortOption } from '../types';
 import {
   CalendarClock,
   Clock,
@@ -10,6 +10,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Sparkles,
+  ArrowUpDown,
 } from 'lucide-react';
 import {
   getFollowUpCategory,
@@ -28,7 +29,114 @@ interface FollowUpViewProps {
   onOpenAddLead: () => void;
   onOpenWhatsApp?: (lead: Lead) => void;
   onOpenEmail?: (lead: Lead) => void;
+  sortOption?: FollowUpSortOption;
+  onSortOptionChange?: (newSort: FollowUpSortOption) => void;
 }
+
+export const sortFollowUpLeads = (list: Lead[], sort: FollowUpSortOption): Lead[] => {
+  return [...list].sort((a, b) => {
+    switch (sort) {
+      case 'DATE_ASC': {
+        const timeA = new Date(a.next_followup_date || 0).getTime();
+        const timeB = new Date(b.next_followup_date || 0).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      }
+
+      case 'DATE_DESC': {
+        const timeA = new Date(a.next_followup_date || 0).getTime();
+        const timeB = new Date(b.next_followup_date || 0).getTime();
+        if (timeA !== timeB) return timeB - timeA;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      }
+
+      case 'CLASS_ONLINE_FIRST': {
+        const getModeRank = (mode?: string) => {
+          if (mode === 'Online') return 1;
+          if (mode === 'Offline') return 2;
+          return 3;
+        };
+        const rankA = getModeRank(a.class_mode);
+        const rankB = getModeRank(b.class_mode);
+        if (rankA !== rankB) return rankA - rankB;
+        const timeA = new Date(a.next_followup_date || 0).getTime();
+        const timeB = new Date(b.next_followup_date || 0).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      }
+
+      case 'CLASS_OFFLINE_FIRST': {
+        const getModeRank = (mode?: string) => {
+          if (mode === 'Offline') return 1;
+          if (mode === 'Online') return 2;
+          return 3;
+        };
+        const rankA = getModeRank(a.class_mode);
+        const rankB = getModeRank(b.class_mode);
+        if (rankA !== rankB) return rankA - rankB;
+        const timeA = new Date(a.next_followup_date || 0).getTime();
+        const timeB = new Date(b.next_followup_date || 0).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      }
+
+      case 'NAME_ASC': {
+        const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        if (cmp !== 0) return cmp;
+        const timeA = new Date(a.next_followup_date || 0).getTime();
+        const timeB = new Date(b.next_followup_date || 0).getTime();
+        return timeA - timeB;
+      }
+
+      case 'NAME_DESC': {
+        const cmp = b.name.localeCompare(a.name, undefined, { sensitivity: 'base' });
+        if (cmp !== 0) return cmp;
+        const timeA = new Date(a.next_followup_date || 0).getTime();
+        const timeB = new Date(b.next_followup_date || 0).getTime();
+        return timeA - timeB;
+      }
+
+      case 'SCORE_HOT_FIRST': {
+        const getScoreRank = (score?: string) => {
+          if (score === 'Hot') return 1;
+          if (score === 'Warm') return 2;
+          if (score === 'Cold') return 3;
+          return 4;
+        };
+        const rankA = getScoreRank(a.lead_score);
+        const rankB = getScoreRank(b.lead_score);
+        if (rankA !== rankB) return rankA - rankB;
+        const timeA = new Date(a.next_followup_date || 0).getTime();
+        const timeB = new Date(b.next_followup_date || 0).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      }
+
+      case 'STATUS': {
+        const statusOrder: Record<string, number> = {
+          'New': 1,
+          'Contacted': 2,
+          'Interested': 3,
+          'Follow-up': 4,
+          'Demo Scheduled': 5,
+          'Enrolled': 6,
+          'Not Interested': 7,
+          'Lost': 8,
+        };
+        const rankA = statusOrder[a.status] || 99;
+        const rankB = statusOrder[b.status] || 99;
+        if (rankA !== rankB) return rankA - rankB;
+        const timeA = new Date(a.next_followup_date || 0).getTime();
+        const timeB = new Date(b.next_followup_date || 0).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      }
+
+      default:
+        return 0;
+    }
+  });
+};
 
 export const FollowUpView: React.FC<FollowUpViewProps> = ({
   leads,
@@ -39,19 +147,27 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
   onOpenAddLead,
   onOpenWhatsApp,
   onOpenEmail,
+  sortOption,
+  onSortOptionChange,
 }) => {
   const [activeTab, setActiveTab] = useState<'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING'>('ALL');
+  const [internalSortOption, setInternalSortOption] = useState<FollowUpSortOption>('DATE_ASC');
   const [rescheduleModalLead, setRescheduleModalLead] = useState<Lead | null>(null);
   const [customDateTime, setCustomDateTime] = useState('');
 
+  const currentSortOption = sortOption ?? internalSortOption;
+
+  const handleSortChange = (newSort: FollowUpSortOption) => {
+    setInternalSortOption(newSort);
+    if (onSortOptionChange) {
+      onSortOptionChange(newSort);
+    }
+  };
+
   // Filter leads with next_followup_date (exclude deleted leads)
-  const followUpLeads = leads
-    .filter((l) => !l.is_deleted && !!l.next_followup_date)
-    .sort((a, b) => {
-      const dateA = new Date(a.next_followup_date || 0).getTime();
-      const dateB = new Date(b.next_followup_date || 0).getTime();
-      return dateA - dateB;
-    });
+  const followUpLeads = leads.filter(
+    (l) => !l.is_deleted && !!l.next_followup_date
+  );
 
   const overdueList = followUpLeads.filter(
     (l) => getFollowUpCategory(l.next_followup_date) === 'overdue'
@@ -63,7 +179,7 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
     (l) => getFollowUpCategory(l.next_followup_date) === 'upcoming'
   );
 
-  const displayedList =
+  const baseList =
     activeTab === 'OVERDUE'
       ? overdueList
       : activeTab === 'TODAY'
@@ -71,6 +187,8 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
       : activeTab === 'UPCOMING'
       ? upcomingList
       : followUpLeads;
+
+  const displayedList = sortFollowUpLeads(baseList, currentSortOption);
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,9 +221,9 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
         </div>
       </div>
 
-      {/* Category Tabs */}
-      <div className="glass p-3 rounded-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 sm:gap-2 text-xs overflow-x-auto pb-1 sm:pb-0 max-w-full">
+      {/* Category Tabs & Controls */}
+      <div className="glass p-3 rounded-xl flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-xs overflow-x-auto pb-1 lg:pb-0 max-w-full">
           <button
             onClick={() => setActiveTab('ALL')}
             className={`px-3 sm:px-3.5 py-2 rounded-lg font-bold transition-all cursor-pointer shrink-0 ${
@@ -154,12 +272,37 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
           </button>
         </div>
 
-        <button
-          onClick={onOpenAddLead}
-          className="text-xs bg-teal-600 hover:bg-teal-500 text-white font-medium px-3.5 py-2 rounded-lg shadow-lg shadow-teal-950/30 cursor-pointer text-center shrink-0"
-        >
-          + Schedule New Lead
-        </button>
+        {/* Right Controls: Sort Dropdown & Schedule Button */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2 text-xs">
+            <label htmlFor="followup-sort-select" className="text-slate-400 font-medium shrink-0 whitespace-nowrap flex items-center gap-1">
+              <ArrowUpDown className="w-3.5 h-3.5 text-teal-400" />
+              <span>Sort by:</span>
+            </label>
+            <select
+              id="followup-sort-select"
+              value={currentSortOption}
+              onChange={(e) => handleSortChange(e.target.value as FollowUpSortOption)}
+              className="bg-slate-900/80 border border-slate-700 text-slate-200 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-teal-500 cursor-pointer font-medium w-full sm:w-auto"
+            >
+              <option value="DATE_ASC">Follow-up Date (Earliest first)</option>
+              <option value="DATE_DESC">Follow-up Date (Latest first)</option>
+              <option value="CLASS_ONLINE_FIRST">Class Mode (Online first)</option>
+              <option value="CLASS_OFFLINE_FIRST">Class Mode (Offline first)</option>
+              <option value="NAME_ASC">Lead Name (A-Z)</option>
+              <option value="NAME_DESC">Lead Name (Z-A)</option>
+              <option value="SCORE_HOT_FIRST">Lead Score (Hot first)</option>
+              <option value="STATUS">Status</option>
+            </select>
+          </div>
+
+          <button
+            onClick={onOpenAddLead}
+            className="text-xs bg-teal-600 hover:bg-teal-500 text-white font-medium px-3.5 py-2 rounded-lg shadow-lg shadow-teal-950/30 cursor-pointer text-center shrink-0 whitespace-nowrap"
+          >
+            + Schedule New Lead
+          </button>
+        </div>
       </div>
 
       {/* Followup List Cards */}

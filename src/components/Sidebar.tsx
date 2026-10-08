@@ -17,6 +17,7 @@ import {
   Share2,
   Layers,
   Trash2,
+  MessageCircle,
 } from 'lucide-react';
 
 export type NavView =
@@ -30,6 +31,7 @@ export type NavView =
   | 'followups'
   | 'import'
   | 'integrations'
+  | 'whatsapp'
   | 'settings';
 
 interface SidebarProps {
@@ -127,6 +129,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Layers,
       badge: 'Live',
       badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
+    },
+    {
+      id: 'whatsapp' as NavView,
+      label: 'WhatsApp Marketing',
+      icon: MessageCircle,
+      badge: 'API',
+      badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
     },
     {
       id: 'settings' as NavView,

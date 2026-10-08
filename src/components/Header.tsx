@@ -95,18 +95,19 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Center Search Bar */}
       <div className="w-80 relative hidden md:block">
-        <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+        <Search className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
         <input
           type="text"
           value={globalSearch}
           onChange={(e) => onGlobalSearchChange(e.target.value)}
-          placeholder="Search leads by name or phone..."
-          className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-all"
+          placeholder="Search leads by name, phone, course, notes..."
+          className="w-full bg-slate-950/80 border border-slate-700 hover:border-slate-600 focus:border-teal-400 focus:ring-1 focus:ring-teal-400/20 rounded-lg pl-9 pr-8 py-2 text-xs font-medium text-slate-100 placeholder-slate-400 focus:outline-none transition-all"
         />
         {globalSearch && (
           <button
             onClick={() => onGlobalSearchChange('')}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs font-bold"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-white rounded-full transition-colors cursor-pointer"
+            title="Clear search"
           >
             ×
           </button>

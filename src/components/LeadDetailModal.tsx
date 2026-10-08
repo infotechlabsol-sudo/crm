@@ -15,7 +15,12 @@ import {
   Mail,
   RotateCcw,
   AlertTriangle,
+  ClipboardCheck,
+  ChevronDown,
+  ChevronUp,
+  Calculator,
 } from 'lucide-react';
+import { QUALIFICATION_QUESTIONS, getQualificationSummary, calculateLeadScore } from '../lib/qualification';
 import { SendWhatsAppModal } from './SendWhatsAppModal';
 import { SendEmailModal } from './SendEmailModal';
 
@@ -93,6 +98,138 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
   const [classMode, setClassMode] = useState<'Online' | 'Offline'>(lead.class_mode || 'Offline');
   const [dob, setDob] = useState(lead.dob || '');
 
+  // Lead Qualification Checklist State
+  const [qualificationAnswers, setQualificationAnswers] = useState<Record<string, 'Hot' | 'Warm' | 'Cold' | null>>(() => {
+    return lead.qualification_answers || {};
+  });
+  const [qualificationCompleted, setQualificationCompleted] = useState<boolean>(() => {
+    return lead.qualification_completed === true;
+  });
+
+  // Check if any answers currently exist
+  const hasExistingAnswers = React.useMemo(() => {
+    return Object.values(lead.qualification_answers || {}).some(
+      (v) => v === 'Hot' || v === 'Warm' || v === 'Cold'
+    );
+  }, [lead.qualification_answers]);
+
+  // Section should be collapsed by default for leads that haven't been qualified yet (Requirement 6)
+  const [isChecklistExpanded, setIsChecklistExpanded] = useState<boolean>(
+    Boolean(lead.qualification_completed || hasExistingAnswers)
+  );
+
+  const [scoreConfirmation, setScoreConfirmation] = useState<LeadScore | null>(null);
+
+  // Manual note state for checklist section
+  const [checklistNoteText, setChecklistNoteText] = useState('');
+  const [checklistNoteSuccess, setChecklistNoteSuccess] = useState(false);
+
+  const handleSaveChecklistNote = () => {
+    if (!checklistNoteText.trim()) return;
+    onAddNote(lead.id, checklistNoteText.trim());
+    setChecklistNoteText('');
+    setChecklistNoteSuccess(true);
+    setTimeout(() => {
+      setChecklistNoteSuccess(false);
+    }, 3000);
+  };
+
+  // Live-updating summary
+  const summary = React.useMemo(() => {
+    return getQualificationSummary(qualificationAnswers);
+  }, [qualificationAnswers]);
+
+  // Immediate save & live calculation on answer select
+  const handleSelectQualificationAnswer = (qid: string, selectedOption: 'Hot' | 'Warm' | 'Cold') => {
+    const currentVal = qualificationAnswers[qid];
+    // If clicking same answer, keep it or toggle; clicking selects option immediately
+    const nextVal: 'Hot' | 'Warm' | 'Cold' | null = currentVal === selectedOption ? null : selectedOption;
+
+    const newAnswers: Record<string, 'Hot' | 'Warm' | 'Cold' | null> = {
+      ...qualificationAnswers,
+      [qid]: nextVal,
+    };
+    setQualificationAnswers(newAnswers);
+
+    const hasAny = Object.values(newAnswers).some(
+      (v) => v === 'Hot' || v === 'Warm' || v === 'Cold'
+    );
+    setQualificationCompleted(hasAny);
+
+    // Live calculation of lead score based on majority with warmer tie-breaker
+    const calculated = calculateLeadScore(newAnswers);
+    const newScore = calculated || leadScore;
+    if (calculated) {
+      setLeadScore(calculated);
+      setScoreConfirmation(calculated);
+    }
+
+    // Immediately save into lead data model without separate save button
+    const parsedTags = tagsInput
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+
+    const updatedLead: Lead = {
+      ...lead,
+      name: name.trim() || lead.name,
+      phone: phone.trim() ? cleanPhoneNumber(phone) : lead.phone,
+      email: email.trim(),
+      source,
+      course_interest: courseInterest,
+      status,
+      assigned_batch: assignedBatch,
+      lead_score: newScore,
+      tags: parsedTags,
+      next_followup_date: nextFollowupDate ? new Date(nextFollowupDate).toISOString() : undefined,
+      address: address.trim(),
+      class_mode: classMode,
+      dob: dob || '',
+      qualification_answers: newAnswers,
+      qualification_completed: hasAny,
+    };
+
+    onSaveLead(updatedLead);
+  };
+
+  // Calculate Lead Score button handler
+  const handleCalculateScoreClick = () => {
+    const calculated = calculateLeadScore(qualificationAnswers);
+    if (!calculated) {
+      return;
+    }
+
+    setLeadScore(calculated);
+    setScoreConfirmation(calculated);
+    setQualificationCompleted(true);
+
+    const parsedTags = tagsInput
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+
+    const updatedLead: Lead = {
+      ...lead,
+      name: name.trim() || lead.name,
+      phone: phone.trim() ? cleanPhoneNumber(phone) : lead.phone,
+      email: email.trim(),
+      source,
+      course_interest: courseInterest,
+      status,
+      assigned_batch: assignedBatch,
+      lead_score: calculated,
+      tags: parsedTags,
+      next_followup_date: nextFollowupDate ? new Date(nextFollowupDate).toISOString() : undefined,
+      address: address.trim(),
+      class_mode: classMode,
+      dob: dob || '',
+      qualification_answers: qualificationAnswers,
+      qualification_completed: true,
+    };
+
+    onSaveLead(updatedLead);
+  };
+
   // Danger Zone Permanent Delete Modal state
   const [showPermanentDeleteConfirm, setShowPermanentDeleteConfirm] = useState(false);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
@@ -163,7 +300,13 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
       address: address.trim(),
       class_mode: classMode,
       dob: dob || '',
+      qualification_answers: qualificationAnswers,
+      qualification_completed: qualificationCompleted,
     };
+
+    if (checklistNoteText.trim()) {
+      onAddNote(lead.id, checklistNoteText.trim());
+    }
 
     onSaveLead(updatedLead);
     onClose();
@@ -322,9 +465,9 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
         )}
 
         {/* Modal Body Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 overflow-y-auto min-h-0">
           {/* Left Column: Editable Lead Details Form (7 cols) */}
-          <div className="lg:col-span-7 p-4 sm:p-6 border-b lg:border-b-0 lg:border-r border-slate-800 space-y-5">
+          <div className="lg:col-span-7 p-4 sm:p-5 border-b lg:border-b-0 lg:border-r border-slate-800 space-y-4 overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <User className="w-4 h-4 text-teal-400" />
@@ -526,6 +669,275 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
               />
             </div>
 
+            {/* Lead Qualification Checklist Section */}
+            <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden transition-all shadow-sm">
+              {/* Collapsible Header */}
+              <button
+                type="button"
+                onClick={() => setIsChecklistExpanded(!isChecklistExpanded)}
+                className="w-full px-3.5 py-3 flex items-center justify-between gap-2 text-left hover:bg-slate-900/60 transition-colors cursor-pointer select-none"
+                aria-expanded={isChecklistExpanded}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="p-1.5 rounded-lg bg-teal-950/80 border border-teal-800/80 text-teal-400 shrink-0">
+                    <ClipboardCheck className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-slate-200">
+                        Lead Qualification Checklist
+                      </span>
+                      {summary.hotCount + summary.warmCount + summary.coldCount > 0 ? (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${scoreBadge.bg} ${scoreBadge.text} ${scoreBadge.border}`}
+                        >
+                          Score: {leadScore}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded border bg-slate-900 text-slate-400 border-slate-800">
+                          Not Yet Qualified
+                        </span>
+                      )}
+                    </div>
+                    {!isChecklistExpanded && (summary.hotCount + summary.warmCount + summary.coldCount === 0) && (
+                      <p className="text-[11px] text-teal-400/90 mt-0.5 font-medium">
+                        Not yet qualified - click to start the qualification checklist
+                      </p>
+                    )}
+                    {!isChecklistExpanded && (summary.hotCount + summary.warmCount + summary.coldCount > 0) && (
+                      <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                        {summary.hotCount + summary.warmCount + summary.coldCount} of 9 answered • Hot: {summary.hotCount}, Warm: {summary.warmCount}, Cold: {summary.coldCount}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0 text-slate-400">
+                  <span className="text-[11px] font-medium hidden sm:inline text-slate-400">
+                    {isChecklistExpanded ? 'Collapse' : 'Expand'}
+                  </span>
+                  {isChecklistExpanded ? (
+                    <ChevronUp className="w-4 h-4 text-slate-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                  )}
+                </div>
+              </button>
+
+              {/* Collapsed State Invitation Banner (Requirement 6) */}
+              {!isChecklistExpanded && (summary.hotCount + summary.warmCount + summary.coldCount === 0) && (
+                <div
+                  onClick={() => setIsChecklistExpanded(true)}
+                  className="px-3.5 pb-3 pt-0 cursor-pointer"
+                >
+                  <div className="p-3 rounded-lg bg-teal-950/20 border border-teal-900/40 hover:border-teal-700/60 transition-all flex items-center justify-between text-xs text-teal-300">
+                    <span className="font-medium">
+                      Not yet qualified - click to start the qualification checklist
+                    </span>
+                    <span className="text-[11px] font-bold text-teal-400 bg-teal-950 px-2.5 py-1 rounded border border-teal-800 shrink-0">
+                      Start Checklist →
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Expanded Checklist Body */}
+              {isChecklistExpanded && (
+                <div className="p-3.5 border-t border-slate-800/80 space-y-3.5 bg-slate-950/40">
+                  {/* 9 Questions List with Descriptive Phrase Buttons */}
+                  <div className="space-y-3">
+                    {QUALIFICATION_QUESTIONS.map((q) => {
+                      const answer = qualificationAnswers[q.id];
+                      return (
+                        <div
+                          key={q.id}
+                          className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 hover:border-slate-700/80 transition-all space-y-2.5"
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <span className="text-[10px] font-mono font-bold text-teal-400 bg-teal-950/80 border border-teal-800/60 px-1.5 py-0.5 rounded shrink-0 mt-0.5">
+                              {q.number}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-200 leading-snug">
+                              {q.label}
+                            </span>
+                          </div>
+
+                          {/* 3 Pill / Chip Buttons with descriptive answer phrases */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pl-0 sm:pl-6 pt-0.5">
+                            {q.options.map((opt) => {
+                              const isSelected = answer === opt.value;
+                              const optStyle =
+                                opt.value === 'Hot'
+                                  ? isSelected
+                                    ? 'bg-red-950/90 border-red-500 text-red-200 shadow-sm shadow-red-950/50 ring-1 ring-red-500/40'
+                                    : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-red-800/60 hover:text-red-300 hover:bg-slate-900/80'
+                                  : opt.value === 'Warm'
+                                  ? isSelected
+                                    ? 'bg-amber-950/90 border-amber-500 text-amber-200 shadow-sm shadow-amber-950/50 ring-1 ring-amber-500/40'
+                                    : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-amber-800/60 hover:text-amber-300 hover:bg-slate-900/80'
+                                  : isSelected
+                                  ? 'bg-slate-800 border-slate-400 text-slate-100 shadow-sm ring-1 ring-slate-400/40'
+                                  : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300 hover:bg-slate-900/80';
+
+                              return (
+                                <button
+                                  key={opt.label}
+                                  type="button"
+                                  onClick={() => handleSelectQualificationAnswer(q.id, opt.value)}
+                                  className={`px-2.5 py-1.5 text-[11px] sm:text-xs rounded-lg border font-medium flex items-center gap-1.5 transition-all cursor-pointer text-left leading-tight ${optStyle}`}
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 transition-transform ${
+                                      isSelected
+                                        ? opt.value === 'Hot'
+                                          ? 'bg-red-400 scale-110 shadow-[0_0_6px_rgba(248,113,113,0.8)]'
+                                          : opt.value === 'Warm'
+                                          ? 'bg-amber-400 scale-110 shadow-[0_0_6px_rgba(251,191,36,0.8)]'
+                                          : 'bg-slate-300 scale-110'
+                                        : 'bg-slate-700'
+                                    }`}
+                                  />
+                                  <span className="flex-1 break-words leading-snug">
+                                    {opt.label === '-' ? (
+                                      <span>
+                                        <span className="font-bold">-</span>{' '}
+                                        <span className="text-[10px] text-slate-400 font-normal">
+                                          (No comparison)
+                                        </span>
+                                      </span>
+                                    ) : (
+                                      opt.label
+                                    )}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Summary Bar (Requirement 4) */}
+                  <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400">
+                      <span>Checklist Summary</span>
+                      <span className="font-mono text-slate-500">
+                        {summary.hotCount + summary.warmCount + summary.coldCount}/9 answered
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-bold pt-0.5">
+                      <span className="text-red-400 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
+                        <span>Hot: {summary.hotCount}</span>
+                      </span>
+                      <span className="text-slate-600">|</span>
+                      <span className="text-amber-400 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                        <span>Warm: {summary.warmCount}</span>
+                      </span>
+                      <span className="text-slate-600">|</span>
+                      <span className="text-slate-300 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
+                        <span>Cold: {summary.coldCount}</span>
+                      </span>
+                      <span className="text-slate-600">|</span>
+                      <span className="text-slate-400 flex items-center gap-1 font-medium">
+                        <span>Unanswered: {summary.unansweredCount}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Calculate Lead Score Button & Confirmation (Requirement 5) */}
+                  <div className="space-y-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleCalculateScoreClick}
+                      disabled={summary.hotCount + summary.warmCount + summary.coldCount === 0}
+                      className="w-full bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer border border-teal-500/30"
+                    >
+                      <Calculator className="w-4 h-4 text-amber-300" />
+                      <span>Calculate Lead Score</span>
+                    </button>
+
+                    {/* Brief confirmation banner */}
+                    {scoreConfirmation && (
+                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-xs animate-fadeIn">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span className="text-slate-200">
+                            Lead score updated to:
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase shrink-0 ${
+                              getScoreBadgeClass(scoreConfirmation).bg
+                            } ${getScoreBadgeClass(scoreConfirmation).text} ${
+                              getScoreBadgeClass(scoreConfirmation).border
+                            }`}
+                          >
+                            {scoreConfirmation}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-emerald-400/90 font-medium shrink-0 ml-2">
+                          Synced
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add New Note Box to type anything manually below the selected section */}
+                  <div className="pt-3.5 border-t border-slate-800/80 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-teal-400" />
+                        <span>Add New Note</span>
+                      </label>
+                      <span className="text-[10px] text-slate-500 font-normal">Type anything manually</span>
+                    </div>
+
+                    <textarea
+                      value={checklistNoteText}
+                      onChange={(e) => setChecklistNoteText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                          e.preventDefault();
+                          if (checklistNoteText.trim()) {
+                            handleSaveChecklistNote();
+                          }
+                        }
+                      }}
+                      placeholder="Type conversation details, fee discussion, specific student requirements..."
+                      rows={3}
+                      className="w-full bg-slate-900 border border-slate-800 text-slate-200 placeholder-slate-500 text-xs rounded-xl p-3 focus:outline-none focus:border-teal-500 font-medium leading-relaxed resize-y"
+                    />
+
+                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                      {checklistNoteSuccess ? (
+                        <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1 animate-fadeIn">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Note saved to student's activity log!</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-500">
+                          Saves directly to student's notes & activity timeline
+                        </span>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleSaveChecklistNote}
+                        disabled={!checklistNoteText.trim()}
+                        className="bg-teal-600 hover:bg-teal-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs py-2 px-4 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ml-auto"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Save Note</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Quick Template Picker for WhatsApp Message */}
             <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs space-y-2">
               <label className="block text-slate-400 font-semibold flex items-center gap-1.5">
@@ -551,7 +963,7 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
           </div>
 
           {/* Right Column: Chat-like Notes History & Activity Timeline (5 cols) */}
-          <div className="lg:col-span-5 p-4 sm:p-6 bg-slate-950/60 flex flex-col justify-between space-y-4">
+          <div className="lg:col-span-5 p-4 sm:p-5 bg-slate-950/60 flex flex-col justify-between space-y-4 overflow-y-auto">
             <div>
               <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-4">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">

@@ -61,6 +61,8 @@ export interface Lead {
   enrolled_date?: string; // ISO string captured when lead status becomes Enrolled
   is_deleted?: boolean; // Soft delete flag
   deleted_date?: string | null; // Timestamp when lead was soft deleted
+  qualification_answers?: Record<string, 'Hot' | 'Warm' | 'Cold' | null>;
+  qualification_completed?: boolean;
 }
 
 export interface CourseItem {
@@ -158,5 +160,114 @@ export interface Webhook {
   last_received_timestamp: string | null; // nullable ISO string
   total_received: number; // default 0
 }
+
+// -------------------------------------------------------------
+// WhatsApp Marketing Cloud API & Automation Types
+// -------------------------------------------------------------
+
+export interface WhatsAppConfig {
+  phoneNumberId: string;
+  businessAccountId: string;
+  webhookVerifyToken: string;
+  accessToken: string;
+  updatedAt?: string;
+}
+
+export type FlowTriggerType = 'new_lead' | 'keyword' | 'manual';
+export type FlowStepType = 'text' | 'button' | 'list';
+
+export interface FlowStepOption {
+  id?: string;
+  label: string;
+  value: string;
+  next: string | null; // next step key or null
+}
+
+export interface FlowStep {
+  type: FlowStepType;
+  message: string;
+  next?: string | null; // used for type === 'text'
+  saveAs?: string; // e.g. 'class_mode', 'has_editing_experience'
+  options?: FlowStepOption[]; // up to 3 for 'button', up to 10 for 'list'
+}
+
+export interface WhatsAppFlow {
+  id: string;
+  name: string;
+  trigger: FlowTriggerType;
+  startStep: string;
+  steps: Record<string, FlowStep>;
+  created_timestamp?: string;
+  updated_timestamp?: string;
+}
+
+export type TriggerMatchType = 'new_lead' | 'keyword';
+
+export interface WhatsAppTrigger {
+  id: string;
+  name: string;
+  matchType: TriggerMatchType;
+  keyword?: string; // required if matchType === 'keyword'
+  flowId: string; // linked flow id from whatsapp_flows
+  flowName?: string;
+  active: boolean;
+  created_timestamp?: string;
+}
+
+export interface DripStep {
+  day: number; // integer days offset e.g. 0, 1, 3, 7
+  message: string;
+}
+
+export interface DripAudienceFilter {
+  courseInterest?: string;
+  course_interest?: string;
+  classMode?: string;
+  class_mode?: string;
+  status?: string;
+  minLeadScore?: number;
+  lead_score?: string | number;
+  source?: string;
+  has_device?: string;
+  [key: string]: any;
+}
+
+export interface WhatsAppDripCampaign {
+  id: string;
+  name: string;
+  audienceFilter: DripAudienceFilter;
+  active: boolean;
+  steps: DripStep[];
+  created_timestamp?: string;
+  updated_timestamp?: string;
+}
+
+export type WAMessageDirection = 'incoming' | 'outgoing';
+export type WAMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
+
+export interface WAMessage {
+  id: string;
+  phone: string; // Normalized digits
+  direction: WAMessageDirection;
+  message?: string;
+  text?: string;
+  timestamp: string; // ISO date string
+  status?: WAMessageStatus;
+  flowId?: string;
+  stepId?: string;
+  leadName?: string;
+  rawPayload?: any;
+}
+
+export type FollowUpSortOption =
+  | 'DATE_ASC'
+  | 'DATE_DESC'
+  | 'CLASS_ONLINE_FIRST'
+  | 'CLASS_OFFLINE_FIRST'
+  | 'NAME_ASC'
+  | 'NAME_DESC'
+  | 'SCORE_HOT_FIRST'
+  | 'STATUS';
+
 
 

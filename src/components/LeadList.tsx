@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Lead,
   LeadStatus,
@@ -39,6 +39,8 @@ import {
 interface LeadListProps {
   leads: Lead[];
   settings: CRMSettings;
+  initialSearch?: string;
+  onSearchChange?: (val: string) => void;
   onSelectLead: (lead: Lead) => void;
   onBulkChangeStatus: (selectedIds: string[], status: LeadStatus) => void;
   onBulkAssignBatch: (selectedIds: string[], batch: string) => void;
@@ -66,6 +68,8 @@ interface LeadListProps {
 export const LeadList: React.FC<LeadListProps> = ({
   leads,
   settings,
+  initialSearch,
+  onSearchChange,
   onSelectLead,
   onBulkChangeStatus,
   onBulkAssignBatch,
@@ -91,7 +95,7 @@ export const LeadList: React.FC<LeadListProps> = ({
 }) => {
   // Filter state
   const [filterState, setFilterState] = useState<LeadFilterState>({
-    search: '',
+    search: initialSearch ?? '',
     status: isNotInterestedView ? 'Not Interested' : initialStatusFilter,
     source: 'ALL',
     course: 'ALL',
@@ -99,6 +103,13 @@ export const LeadList: React.FC<LeadListProps> = ({
     dateRange: 'ALL',
     classMode: 'ALL',
   });
+
+  // Keep search in sync if initialSearch updates from outside (e.g. Header bar)
+  useEffect(() => {
+    if (initialSearch !== undefined && initialSearch !== filterState.search) {
+      setFilterState((prev) => ({ ...prev, search: initialSearch }));
+    }
+  }, [initialSearch]);
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>(isDeletedLeadsView ? ('created_date' as any) : 'created_date');
@@ -140,14 +151,45 @@ export const LeadList: React.FC<LeadListProps> = ({
 
         // Search
         if (filterState.search.trim()) {
-          const query = filterState.search.toLowerCase();
-          const nameMatch = lead.name.toLowerCase().includes(query);
-          const phoneMatch = lead.phone.includes(query);
+          const query = filterState.search.toLowerCase().trim();
+          const cleanPhoneQuery = query.replace(/[^\d]/g, '');
+          const cleanLeadPhone = lead.phone ? lead.phone.replace(/[^\d]/g, '') : '';
+
+          const nameMatch = lead.name ? lead.name.toLowerCase().includes(query) : false;
+          const phoneMatch = lead.phone
+            ? lead.phone.toLowerCase().includes(query) || (cleanPhoneQuery.length >= 3 && cleanLeadPhone.includes(cleanPhoneQuery))
+            : false;
           const emailMatch = lead.email ? lead.email.toLowerCase().includes(query) : false;
+          const courseMatch = lead.course_interest ? lead.course_interest.toLowerCase().includes(query) : false;
+          const sourceMatch = lead.source ? lead.source.toLowerCase().includes(query) : false;
+          const statusMatch = lead.status ? lead.status.toLowerCase().includes(query) : false;
+          const batchMatch = lead.assigned_batch ? lead.assigned_batch.toLowerCase().includes(query) : false;
+          const scoreMatch = lead.lead_score ? lead.lead_score.toLowerCase().includes(query) : false;
+          const addressMatch = lead.address ? lead.address.toLowerCase().includes(query) : false;
+          const modeMatch = lead.class_mode ? lead.class_mode.toLowerCase().includes(query) : false;
+          const idMatch = lead.id ? lead.id.toLowerCase().includes(query) : false;
           const tagsMatch = Array.isArray(lead.tags)
             ? lead.tags.some((t) => t.toLowerCase().includes(query))
             : false;
-          if (!nameMatch && !phoneMatch && !emailMatch && !tagsMatch) {
+          const notesMatch = Array.isArray(lead.notes_history)
+            ? lead.notes_history.some((n) => n.note_text && n.note_text.toLowerCase().includes(query))
+            : false;
+
+          if (
+            !nameMatch &&
+            !phoneMatch &&
+            !emailMatch &&
+            !courseMatch &&
+            !sourceMatch &&
+            !statusMatch &&
+            !batchMatch &&
+            !scoreMatch &&
+            !addressMatch &&
+            !modeMatch &&
+            !idMatch &&
+            !tagsMatch &&
+            !notesMatch
+          ) {
             return false;
           }
         }
@@ -300,16 +342,43 @@ export const LeadList: React.FC<LeadListProps> = ({
       <div className="glass p-4 rounded-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         {/* Left Search & Google Sheets Actions */}
         <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="relative flex-1 group">
+            <Search className="w-4 h-4 text-teal-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors group-focus-within:text-teal-300 z-10" />
             <input
               type="text"
               value={filterState.search}
-              onChange={(e) => setFilterState({ ...filterState, search: e.target.value })}
-              placeholder="Search student name, phone number, email, or #tags..."
-              className="w-full bg-slate-900/80 border border-slate-700 text-slate-200 placeholder-slate-500 text-xs rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-teal-500"
+              onChange={(e) => {
+                const val = e.target.value;
+                setFilterState((prev) => ({ ...prev, search: val }));
+                onSearchChange?.(val);
+              }}
+              placeholder="Search student name, phone, email, course, batch, notes, #tags..."
+              className="w-full bg-slate-950/90 border-2 border-slate-600 hover:border-slate-500 focus:border-teal-400 focus:ring-2 focus:ring-teal-400/20 text-slate-100 placeholder-slate-400 text-sm font-medium rounded-xl pl-10 pr-10 py-2.5 shadow-inner transition-all outline-none"
+              autoComplete="off"
+              spellCheck={false}
             />
+            {filterState.search && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterState((prev) => ({ ...prev, search: '' }));
+                  onSearchChange?.('');
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-full transition-colors cursor-pointer z-10"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
+
+          {filterState.search.trim() && (
+            <span className="text-[11px] font-bold text-teal-300 bg-teal-950/80 border border-teal-800/80 px-2.5 py-2 rounded-lg shrink-0 flex items-center gap-1.5 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+              <span>{filteredLeads.length} {filteredLeads.length === 1 ? 'match' : 'matches'}</span>
+            </span>
+          )}
 
           {!isDeletedLeadsView && onOpenGoogleSheetsModal && (
             <div className="flex items-center gap-1.5 shrink-0">

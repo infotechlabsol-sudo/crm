@@ -31,6 +31,30 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
+    match /settings/whatsapp_config {
+      allow read, write: if request.auth != null;
+    }
+
+    // WhatsApp Flows collection rules
+    match /whatsapp_flows/{flowId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // WhatsApp Triggers collection rules
+    match /whatsapp_triggers/{triggerId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // WhatsApp Drip Campaigns collection rules
+    match /whatsapp_drip_campaigns/{campaignId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // WhatsApp Messages collection rules (for inbox and external backend sync)
+    match /wa_messages/{messageId} {
+      allow read, write: if request.auth != null;
+    }
+
     // Courses collection rules
     match /courses/{courseId} {
       allow read, write: if request.auth != null;

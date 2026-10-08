@@ -48,6 +48,7 @@ import {
   EmailTemplate,
   CustomForm,
   Webhook,
+  FollowUpSortOption,
 } from './types';
 import { getFollowUpCategory } from './lib/utils';
 import { Sidebar, NavView } from './components/Sidebar';
@@ -65,6 +66,7 @@ import { SettingsView } from './components/SettingsView';
 import { CustomFormsView } from './components/CustomFormsView';
 import { PublicFormView } from './components/PublicFormView';
 import { IntegrationsView } from './components/IntegrationsView';
+import { WhatsAppMarketingView } from './components/whatsapp/WhatsAppMarketingView';
 import { LoginView } from './components/LoginView';
 import { Loader2 } from 'lucide-react';
 import {
@@ -145,6 +147,9 @@ export default function App() {
 
   // Initial Filter for Lead List View when jumping from Dashboard
   const [leadListStatusFilter, setLeadListStatusFilter] = useState('ALL');
+
+  // Follow-ups Sort Option (in-memory session persistence)
+  const [followUpSortOption, setFollowUpSortOption] = useState<FollowUpSortOption>('DATE_ASC');
 
   // Modals state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -435,6 +440,9 @@ export default function App() {
   const handleSaveLead = (updatedLead: Lead) => {
     saveLead(updatedLead);
     refreshLeads();
+    if (selectedLead && selectedLead.id === updatedLead.id) {
+      setSelectedLead(updatedLead);
+    }
   };
 
   const handleAddNote = (leadId: string, noteText: string) => {
@@ -699,6 +707,10 @@ export default function App() {
       title: 'Integrations & Lead Ingestion Hub',
       subtitle: 'Google Sheets Live Sync, Sharable Forms, and Zapier / Make.com Webhooks',
     },
+    whatsapp: {
+      title: 'WhatsApp Marketing & Cloud API Hub',
+      subtitle: 'API credentials, multi-day drip campaigns, instant trigger rules, automation flows & inbox',
+    },
     settings: {
       title: 'System Configuration',
       subtitle: 'Custom courses, batches, sources, and WhatsApp message templates',
@@ -836,6 +848,8 @@ export default function App() {
             <LeadList
               leads={leads}
               settings={effectiveSettings}
+              initialSearch={globalSearch}
+              onSearchChange={setGlobalSearch}
               onSelectLead={(l) => setSelectedLead(l)}
               onBulkChangeStatus={handleBulkChangeStatus}
               onBulkAssignBatch={handleBulkAssignBatch}
@@ -882,6 +896,8 @@ export default function App() {
               onOpenAddLead={() => setShowAddLeadModal(true)}
               onOpenWhatsApp={(l) => setWhatsAppModalLead(l)}
               onOpenEmail={(l) => setEmailModalLead(l)}
+              sortOption={followUpSortOption}
+              onSortOptionChange={setFollowUpSortOption}
             />
           )}
 
@@ -964,6 +980,15 @@ export default function App() {
               leads={leads}
               settings={effectiveSettings}
             />
+          )}
+
+          {currentView === 'whatsapp' && (
+            <div className="p-4 sm:p-6">
+              <WhatsAppMarketingView
+                leads={leads}
+                onSelectLead={(l) => setSelectedLead(l)}
+              />
+            </div>
           )}
 
           {currentView === 'settings' && (

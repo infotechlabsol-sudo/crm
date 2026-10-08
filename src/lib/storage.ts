@@ -1,4 +1,19 @@
-import { Lead, CRMSettings, CourseItem, BatchItem, WhatsAppTemplate, EmailTemplate, CustomForm, FormFieldDefinition, Webhook } from '../types';
+import {
+  Lead,
+  CRMSettings,
+  CourseItem,
+  BatchItem,
+  WhatsAppTemplate,
+  EmailTemplate,
+  CustomForm,
+  FormFieldDefinition,
+  Webhook,
+  WhatsAppConfig,
+  WhatsAppFlow,
+  WhatsAppTrigger,
+  WhatsAppDripCampaign,
+  WAMessage,
+} from '../types';
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import {
@@ -282,6 +297,8 @@ export function subscribeToLeads(
         dob: data.dob || '',
         is_deleted: data.is_deleted === true,
         deleted_date: data.deleted_date || null,
+        qualification_answers: data.qualification_answers || {},
+        qualification_completed: data.qualification_completed === true,
       } as Lead);
     });
 
@@ -762,6 +779,12 @@ export function saveLeads(leads: Lead[]): void {
       if (data.deleted_date === undefined) {
         data.deleted_date = null;
       }
+      if (data.qualification_answers === undefined) {
+        data.qualification_answers = lead.qualification_answers || {};
+      }
+      if (data.qualification_completed === undefined) {
+        data.qualification_completed = lead.qualification_completed || false;
+      }
       const sanitized = sanitizeData(data);
       await setDoc(doc(db, 'leads', id), sanitized);
     });
@@ -801,6 +824,12 @@ export function saveLead(lead: Lead): Lead {
   }
   if (data.deleted_date === undefined) {
     data.deleted_date = null;
+  }
+  if (data.qualification_answers === undefined) {
+    data.qualification_answers = lead.qualification_answers || {};
+  }
+  if (data.qualification_completed === undefined) {
+    data.qualification_completed = lead.qualification_completed || false;
   }
   const sanitized = sanitizeData(data);
   setDoc(doc(db, 'leads', id), sanitized).catch((err) => {
@@ -1628,5 +1657,445 @@ export async function processIncomingWebhook(
     webhook: updatedWebhook,
   };
 }
+
+// =============================================================
+// WHATSAPP MARKETING CLOUD API & AUTOMATION STORAGE
+// =============================================================
+
+let whatsAppConfigCache: WhatsAppConfig | null = null;
+let whatsAppFlowsCache: WhatsAppFlow[] = [];
+let whatsAppTriggersCache: WhatsAppTrigger[] = [];
+let whatsAppDripCampaignsCache: WhatsAppDripCampaign[] = [];
+let waMessagesCache: WAMessage[] = [];
+
+export const DEFAULT_SAMPLE_FLOW: Omit<WhatsAppFlow, 'id'> = {
+  name: 'New Lead Qualification',
+  trigger: 'new_lead',
+  startStep: 'welcome',
+  steps: {
+    welcome: {
+      type: 'text',
+      message: 'Namaste! Tech Lab Academy me interest ke liye dhanyavaad 🙏',
+      next: 'q1',
+    },
+    q1: {
+      type: 'button',
+      message: 'Kya aap pehle se editing karte hain?',
+      saveAs: 'has_editing_experience',
+      options: [
+        { label: 'Haan', value: 'editing_yes', next: 'q2' },
+        { label: 'Nahi', value: 'editing_no', next: 'q2' },
+      ],
+    },
+    q2: {
+      type: 'button',
+      message: 'Aap kis mode me seekhna chahte hain?',
+      saveAs: 'class_mode',
+      options: [
+        { label: 'Offline (Raipur)', value: 'Offline', next: 'end' },
+        { label: 'Online Live', value: 'Online', next: 'end' },
+      ],
+    },
+    end: {
+      type: 'text',
+      message: 'Dhanyavaad! Hamari admission team aapse jald contact karegi.',
+      next: null,
+    },
+  },
+};
+
+// 1. WhatsApp Config (settings/whatsapp_config)
+export function subscribeToWhatsAppConfig(
+  onUpdate: (config: WhatsAppConfig | null) => void,
+  onError?: (error: any) => void
+) {
+  const docRef = doc(db, 'settings', 'whatsapp_config');
+  return onSnapshot(
+    docRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as WhatsAppConfig;
+        whatsAppConfigCache = {
+          phoneNumberId: data.phoneNumberId || '',
+          businessAccountId: data.businessAccountId || '',
+          webhookVerifyToken: data.webhookVerifyToken || '',
+          accessToken: data.accessToken || '',
+          updatedAt: data.updatedAt || '',
+        };
+        onUpdate(whatsAppConfigCache);
+      } else {
+        whatsAppConfigCache = null;
+        onUpdate(null);
+      }
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.GET, 'settings/whatsapp_config');
+      if (onError) onError(error);
+    }
+  );
+}
+
+export function getWhatsAppConfig(): WhatsAppConfig | null {
+  return whatsAppConfigCache;
+}
+
+export async function saveWhatsAppConfig(config: Partial<WhatsAppConfig>): Promise<void> {
+  try {
+    const docRef = doc(db, 'settings', 'whatsapp_config');
+    const updateData = sanitizeData({
+      ...config,
+      updatedAt: new Date().toISOString(),
+    });
+    await setDoc(docRef, updateData, { merge: true });
+    whatsAppConfigCache = {
+      ...(whatsAppConfigCache || {
+        phoneNumberId: '',
+        businessAccountId: '',
+        webhookVerifyToken: '',
+        accessToken: '',
+      }),
+      ...config,
+      updatedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'settings/whatsapp_config');
+    throw error;
+  }
+}
+
+// 2. WhatsApp Flows (whatsapp_flows)
+export function subscribeToWhatsAppFlows(
+  onUpdate: (flows: WhatsAppFlow[]) => void,
+  onError?: (error: any) => void
+) {
+  const colRef = collection(db, 'whatsapp_flows');
+  return onSnapshot(
+    colRef,
+    async (snapshot) => {
+      if (snapshot.empty) {
+        // Auto-seed default flow if completely empty
+        try {
+          const newDoc = await addDoc(collection(db, 'whatsapp_flows'), sanitizeData({
+            ...DEFAULT_SAMPLE_FLOW,
+            created_timestamp: new Date().toISOString(),
+            updated_timestamp: new Date().toISOString(),
+          }));
+          onUpdate([{ id: newDoc.id, ...DEFAULT_SAMPLE_FLOW }]);
+          return;
+        } catch (e) {
+          console.warn('Initial seeding of WhatsApp flow:', e);
+        }
+      }
+
+      const flows: WhatsAppFlow[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        flows.push({
+          id: docSnap.id,
+          name: data.name || 'Untitled Flow',
+          trigger: data.trigger || 'new_lead',
+          startStep: data.startStep || 'welcome',
+          steps: data.steps || {},
+          created_timestamp: data.created_timestamp,
+          updated_timestamp: data.updated_timestamp,
+        });
+      });
+
+      flows.sort((a, b) => (b.updated_timestamp || b.created_timestamp || '').localeCompare(a.updated_timestamp || a.created_timestamp || ''));
+      whatsAppFlowsCache = flows;
+      onUpdate(flows);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'whatsapp_flows');
+      if (onError) onError(error);
+    }
+  );
+}
+
+export function getWhatsAppFlows(): WhatsAppFlow[] {
+  return whatsAppFlowsCache;
+}
+
+export async function addWhatsAppFlow(flow: Omit<WhatsAppFlow, 'id'>): Promise<string> {
+  try {
+    const nowISO = new Date().toISOString();
+    const docData = sanitizeData({
+      ...flow,
+      created_timestamp: nowISO,
+      updated_timestamp: nowISO,
+    });
+    const docRef = await addDoc(collection(db, 'whatsapp_flows'), docData);
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'whatsapp_flows');
+    throw error;
+  }
+}
+
+export async function updateWhatsAppFlow(id: string, flow: Partial<WhatsAppFlow>): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsapp_flows', id);
+    const updateData = sanitizeData({
+      ...flow,
+      updated_timestamp: new Date().toISOString(),
+    });
+    await setDoc(docRef, updateData, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `whatsapp_flows/${id}`);
+    throw error;
+  }
+}
+
+export async function deleteWhatsAppFlow(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsapp_flows', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `whatsapp_flows/${id}`);
+    throw error;
+  }
+}
+
+// 3. WhatsApp Triggers (whatsapp_triggers)
+export function subscribeToWhatsAppTriggers(
+  onUpdate: (triggers: WhatsAppTrigger[]) => void,
+  onError?: (error: any) => void
+) {
+  const colRef = collection(db, 'whatsapp_triggers');
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const triggers: WhatsAppTrigger[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        triggers.push({
+          id: docSnap.id,
+          name: data.name || 'Untitled Trigger',
+          matchType: data.matchType || 'new_lead',
+          keyword: data.keyword || '',
+          flowId: data.flowId || '',
+          flowName: data.flowName || '',
+          active: data.active !== false,
+          created_timestamp: data.created_timestamp,
+        });
+      });
+
+      triggers.sort((a, b) => (b.created_timestamp || '').localeCompare(a.created_timestamp || ''));
+      whatsAppTriggersCache = triggers;
+      onUpdate(triggers);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'whatsapp_triggers');
+      if (onError) onError(error);
+    }
+  );
+}
+
+export function getWhatsAppTriggers(): WhatsAppTrigger[] {
+  return whatsAppTriggersCache;
+}
+
+export async function addWhatsAppTrigger(trigger: Omit<WhatsAppTrigger, 'id'>): Promise<string> {
+  try {
+    const nowISO = new Date().toISOString();
+    const docData = sanitizeData({
+      ...trigger,
+      created_timestamp: nowISO,
+    });
+    const docRef = await addDoc(collection(db, 'whatsapp_triggers'), docData);
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'whatsapp_triggers');
+    throw error;
+  }
+}
+
+export async function updateWhatsAppTrigger(id: string, trigger: Partial<WhatsAppTrigger>): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsapp_triggers', id);
+    const updateData = sanitizeData(trigger);
+    await setDoc(docRef, updateData, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `whatsapp_triggers/${id}`);
+    throw error;
+  }
+}
+
+export async function toggleWhatsAppTriggerActive(id: string, active: boolean): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsapp_triggers', id);
+    await setDoc(docRef, { active }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `whatsapp_triggers/${id}`);
+    throw error;
+  }
+}
+
+export async function deleteWhatsAppTrigger(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsapp_triggers', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `whatsapp_triggers/${id}`);
+    throw error;
+  }
+}
+
+// 4. WhatsApp Drip Campaigns (whatsapp_drip_campaigns)
+export function subscribeToWhatsAppDripCampaigns(
+  onUpdate: (campaigns: WhatsAppDripCampaign[]) => void,
+  onError?: (error: any) => void
+) {
+  const colRef = collection(db, 'whatsapp_drip_campaigns');
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const campaigns: WhatsAppDripCampaign[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        campaigns.push({
+          id: docSnap.id,
+          name: data.name || 'Untitled Campaign',
+          audienceFilter: data.audienceFilter || {},
+          active: data.active !== false,
+          steps: Array.isArray(data.steps) ? data.steps : [],
+          created_timestamp: data.created_timestamp,
+          updated_timestamp: data.updated_timestamp,
+        });
+      });
+
+      campaigns.sort((a, b) => (b.updated_timestamp || b.created_timestamp || '').localeCompare(a.updated_timestamp || a.created_timestamp || ''));
+      whatsAppDripCampaignsCache = campaigns;
+      onUpdate(campaigns);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'whatsapp_drip_campaigns');
+      if (onError) onError(error);
+    }
+  );
+}
+
+export function getWhatsAppDripCampaigns(): WhatsAppDripCampaign[] {
+  return whatsAppDripCampaignsCache;
+}
+
+export async function addWhatsAppDripCampaign(campaign: Omit<WhatsAppDripCampaign, 'id'>): Promise<string> {
+  try {
+    const nowISO = new Date().toISOString();
+    const docData = sanitizeData({
+      ...campaign,
+      created_timestamp: nowISO,
+      updated_timestamp: nowISO,
+    });
+    const docRef = await addDoc(collection(db, 'whatsapp_drip_campaigns'), docData);
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'whatsapp_drip_campaigns');
+    throw error;
+  }
+}
+
+export async function updateWhatsAppDripCampaign(id: string, campaign: Partial<WhatsAppDripCampaign>): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsapp_drip_campaigns', id);
+    const updateData = sanitizeData({
+      ...campaign,
+      updated_timestamp: new Date().toISOString(),
+    });
+    await setDoc(docRef, updateData, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `whatsapp_drip_campaigns/${id}`);
+    throw error;
+  }
+}
+
+export async function toggleWhatsAppDripCampaignActive(id: string, active: boolean): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsapp_drip_campaigns', id);
+    await setDoc(docRef, { active, updated_timestamp: new Date().toISOString() }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `whatsapp_drip_campaigns/${id}`);
+    throw error;
+  }
+}
+
+export async function deleteWhatsAppDripCampaign(id: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'whatsapp_drip_campaigns', id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `whatsapp_drip_campaigns/${id}`);
+    throw error;
+  }
+}
+
+// 5. WhatsApp Messages & Inbox (wa_messages)
+export function subscribeToWAMessages(
+  onUpdate: (messages: WAMessage[]) => void,
+  onError?: (error: any) => void
+) {
+  const colRef = collection(db, 'wa_messages');
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const messages: WAMessage[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        messages.push({
+          id: docSnap.id,
+          phone: data.phone || '',
+          direction: data.direction === 'outgoing' ? 'outgoing' : 'incoming',
+          message: data.message || data.text || '',
+          text: data.text || data.message || '',
+          timestamp: data.timestamp || data.created_timestamp || new Date().toISOString(),
+          status: data.status || 'sent',
+          flowId: data.flowId,
+          stepId: data.stepId,
+          leadName: data.leadName,
+          rawPayload: data.rawPayload,
+        });
+      });
+
+      // Sort by timestamp asc for chat sequence
+      messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      waMessagesCache = messages;
+      onUpdate(messages);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'wa_messages');
+      if (onError) onError(error);
+    }
+  );
+}
+
+export function getWAMessages(): WAMessage[] {
+  return waMessagesCache;
+}
+
+export async function sendManualWAMessage(
+  phone: string,
+  text: string,
+  leadName?: string
+): Promise<string> {
+  try {
+    const cleanPhone = phone.replace(/\D/g, '');
+    const nowISO = new Date().toISOString();
+    const newMsgData = sanitizeData({
+      phone: cleanPhone,
+      direction: 'outgoing',
+      status: 'pending',
+      message: text,
+      text: text,
+      timestamp: nowISO,
+      leadName: leadName || undefined,
+    });
+    const docRef = await addDoc(collection(db, 'wa_messages'), newMsgData);
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'wa_messages');
+    throw error;
+  }
+}
+
 
 
